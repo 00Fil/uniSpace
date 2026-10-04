@@ -277,11 +277,11 @@ def job_download(jid, sp, url, quality):
                     raise QuotaError(f"Spazio esaurito: hai raggiunto {gb(sp.quota)}. Elimina qualche video e riprova.")
             tot = s.get("total_bytes") or s.get("total_bytes_estimate") or 0
             done = s.get("downloaded_bytes") or 0
-            sp = s.get("speed") or 0
+            speed = s.get("speed") or 0
             eta = s.get("eta")
             msg = f"Download {kind}  {done/1e6:.0f}/{tot/1e6:.0f} MB"
-            if sp:
-                msg += f"  ·  {sp/1e6:.1f} MB/s"
+            if speed:
+                msg += f"  ·  {speed/1e6:.1f} MB/s"
             if eta:
                 msg += f"  ·  {int(eta)}s"
             upd(jid, progress=(done / tot * 0.95) if tot else 0, message=msg)
