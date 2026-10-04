@@ -604,3 +604,14 @@ summary:hover{color:var(--text)}
   .lk-th{width:120px}.lk-th.sm{width:96px}.lk-hint{display:none}
   .lk-l li .ib[data-add]{display:none}
 }
+
+/* pannello del singolo video */
+.pempty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:56px 28px;color:var(--muted);font-size:13px;line-height:1.45}
+.pempty svg{width:34px;height:34px;fill:none;stroke:var(--faint);stroke-width:1.6;stroke-linejoin:round;margin-bottom:6px}
+.pempty b{color:var(--text);font-weight:560}
+.vhead{display:flex;align-items:center;gap:12px;padding-top:16px;padding-bottom:16px}
+.vh-th{width:56px;height:34px;border-radius:7px;flex:none;background:var(--surface-2) center/cover no-repeat;box-shadow:inset 0 0 0 1px var(--line)}
+.vh-t{min-width:0;display:flex;flex-direction:column;gap:2px}
+.vh-t span{font-size:11.5px;color:var(--faint);font-weight:560}
+.vh-t b{font-size:13px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.adv-n{font-size:11.5px;color:var(--faint);margin-top:8px}

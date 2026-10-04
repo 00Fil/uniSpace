@@ -110,6 +110,9 @@
     </main>
 
     <aside class="side" id="right"><div class="sheet-h" id="sheetH"><i></i></div><div class="side-in"><div class="panel" id="panel">
+      <div class="pempty" id="pEmpty"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10.5 9.5v5l4-2.5z"/></svg><b>Nessun video aperto</b><span>Apri un video dalla libreria: qui regoli velocità, pause ed esportazione solo per quel video.</span></div>
+      <div id="pBody" hidden>
+      <div class="grp vhead"><div class="vh-th" id="pThumb"></div><div class="vh-t"><span>Impostazioni di questo video</span><b id="pTitle"></b></div></div>
       <div class="grp">
         <div class="gt"><span>Velocità</span></div>
         <div class="big" id="speedVal">1,00<small>×</small></div>
@@ -127,7 +130,8 @@
             <div class="field"><label>Soglia del silenzio <output id="noiseO"></output></label><input type="range" id="noise" min="-55" max="-20" step="1" value="-35"></div>
             <div class="field"><label>Pausa minima <output id="mindO"></output></label><input type="range" id="mind" min="0.2" max="2.5" step="0.1" value="0.6"></div>
             <div class="field"><label>Margine sulle parole <output id="padO"></output></label><input type="range" id="pad" min="0" max="0.5" step="0.02" value="0.12"></div>
-            <button class="btn btn-s" id="analyzeBtn"><span class="fill"></span><span class="lbl">Analizza di nuovo</span></button>
+            <button class="btn btn-s" id="analyzeBtn"><span class="fill"></span><span class="lbl">Ripristina predefiniti</span></button>
+            <div class="adv-n">Le modifiche si applicano da sole quando lasci il cursore.</div>
           </div></div></div>
         </details>
       </div>
@@ -141,10 +145,11 @@
         </div>
       </div>
       <div class="grp">
-        <div class="gt"><span id="exTitle">Esporta MP4</span></div>
+        <div class="gt"><span id="exTitle">Esporta questo video</span></div>
         <label class="check"><input type="checkbox" id="exRemove" checked><span class="box"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg></span>Rimuovi i silenzi</label>
         <button class="btn btn-p" id="exportBtn" style="width:100%;margin-top:14px;height:34px"><span class="fill"></span><span class="lbl" id="exLabel">Crea a 1×</span></button>
         <div class="exports" id="exports"></div>
+      </div>
       </div>
       <div class="grp kbd-grp">
         <div class="gt"><span>Scorciatoie</span></div>

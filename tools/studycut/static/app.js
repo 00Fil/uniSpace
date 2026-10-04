@@ -1,7 +1,8 @@
 /* StudyCut — logica dell'interfaccia */
 const $ = s => document.querySelector(s);
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
-const state = { lib: [], cur: null, speed: +localStorage.speed || 1, skip: localStorage.skip !== '0',
+// velocita' e salto delle pause sono del singolo video (salvati nel video, vedi saveSettings)
+const state = { lib: [], cur: null, speed: 1, skip: true,
   links: [], jobs: [], seen: new Set(), vol: localStorage.vol ? +localStorage.vol : 1, muted: localStorage.muted === '1' };
 const video = $('#video'), pv = $('#pv'), app = $('#app'), vwrap = $('#vwrap'), pbox = $('#pbox');
 const mq = matchMedia('(max-width:860px),(pointer:coarse) and (max-height:520px)'), isMob = () => mq.matches;
@@ -401,7 +402,7 @@ function renderJobs() {
   const ex = state.jobs.find(j => j.kind === 'export' && j.video === cur && !j.ended);
   const an = state.jobs.find(j => j.kind === 'analyze' && j.video === cur && !j.ended);
   progBtn($('#exportBtn'), ex, exportLabel());
-  progBtn($('#analyzeBtn'), an, state.cur && state.cur.analysis ? 'Analizza di nuovo' : 'Analizza');
+  progBtn($('#analyzeBtn'), an, 'Ripristina predefiniti');
   const pr = state.jobs.find(j => j.kind === 'prepare' && j.video === cur && !j.ended);
   if (an) $('#skipSub').textContent = `Analisi in corso · ${Math.round(an.progress * 100)}%`;
   else if (pr && state.cur && state.cur.analysis) $('#skipSub').textContent = pr.status === 'queued' ? 'Versione senza pause in coda…' : `Senza pause, in streaming · ${Math.round(pr.progress * 100)}% pronto`;
@@ -527,7 +528,10 @@ async function open(id) {
   $('#empty').hidden = true; $('#viewer').hidden = false; window.BGFX && BGFX.mode('waves');
   maybeVideoTour();
   if (!same) {
-    const src = `media/${m.id}/${m.file}`;
+    const src = `media/${m.id}/${m.file}`, st = m.settings || {};
+    state.skip = st.skip !== undefined ? st.skip : true; setSpeed(st.speed || 1, false);
+    const a = m.analysis || {}; $('#noise').value = a.noise ?? DEF.noise; $('#mind').value = a.min ?? DEF.min; $('#pad').value = a.pad ?? DEF.pad; syncAdv();
+    $('#exRemove').checked = state.skip;
     state.src = null; syncSrc(0, false);
     if (m.audio) pv.removeAttribute('src'); else pv.src = src;
     const poster = m.thumb ? `url('media/${m.id}/${m.thumb}')` : 'none';
@@ -542,10 +546,25 @@ async function open(id) {
   let src = m.source; try { src = new URL(m.source).hostname.replace('www.', ''); } catch {}
   $('#vMeta').textContent = `${human(m.duration)} · ${m.audio ? 'solo audio · ' : ''}${src}`;
   $('#origDl').href = `media/${m.id}/${m.file}?dl=1`;
-  $('#exTitle').textContent = m.audio ? 'Esporta audio' : 'Esporta MP4';
-  if (m.analysis) { $('#noise').value = m.analysis.noise; $('#mind').value = m.analysis.min; $('#pad').value = m.analysis.pad; syncAdv(); }
+  $('#exTitle').textContent = m.audio ? 'Esporta questo audio' : 'Esporta questo video';
+  if (m.analysis && !advDirty) { $('#noise').value = m.analysis.noise; $('#mind').value = m.analysis.min; $('#pad').value = m.analysis.pad; syncAdv(); }
+  renderPanel();
   if (same) syncSrc();
   renderAnalysis(); renderExports(!same); loadLib(); renderJobs(); tlKey = '';
+}
+function renderPanel() {
+  const m = state.cur;
+  $('#pEmpty').hidden = !!m; $('#pBody').hidden = !m;
+  if (!m) return;
+  $('#pTitle').textContent = m.title; $('#pTitle').title = m.title;
+  $('#pThumb').style.backgroundImage = m.thumb ? `url('media/${m.id}/${m.thumb}')` : '';
+  segInd();
+}
+let setT = 0;
+function saveSettings() { // salvate nel video: ogni video ricorda velocita' e salto delle pause
+  const m = state.cur; if (!m) return;
+  m.settings = { speed: state.speed, skip: state.skip };
+  clearTimeout(setT); setT = setTimeout(() => post('api/settings', { id: m.id, ...m.settings }).catch(() => {}), 400);
 }
 function renderAnalysis() {
   const m = state.cur, a = m && m.analysis, on = !!a && state.skip;
@@ -562,7 +581,8 @@ function renderStats() {
   tween($('#stEff'), eff, fmt);
   tween($('#stSaved'), d - eff, v => v > 1 ? `${fmt(v)} · ${Math.round(v / d * 100)}%` : '–');
 }
-const exportLabel = () => `Crea a ${sp(state.speed)}`;
+const exportLabel = () => `Crea a ${sp(state.speed)}${$('#exRemove').checked ? ' · senza pause' : ''}`;
+$('#exRemove').addEventListener('change', () => { if (!$('#exportBtn').classList.contains('busy')) swapText($('#exLabel'), exportLabel()); });
 const expSeen = new Set();
 function renderExports(reset) {
   const m = state.cur, ex = (m && m.exports) || [];
@@ -785,7 +805,17 @@ async function analyze(id, quiet) {
   try { await post('api/analyze', { id, noise: +$('#noise').value, min: +$('#mind').value, pad: +$('#pad').value }); pollJobs(); }
   catch (err) { if (!quiet) toast('Analisi non riuscita', err.message, 'err'); }
 }
-$('#analyzeBtn').onclick = () => analyze();
+const DEF = { noise: -35, min: 0.6, pad: 0.12 };
+let advDirty = false, advT = 0;
+// sensibilita': si applica da sola (nuova analisi solo di questo video) quando lasci il cursore
+function applyAdv() {
+  const m = state.cur; if (!m) return; const a = m.analysis;
+  if (a && +$('#noise').value === a.noise && +$('#mind').value === a.min && +$('#pad').value === a.pad) { advDirty = false; return; }
+  advDirty = true; clearTimeout(advT);
+  advT = setTimeout(async () => { await analyze(m.id); advDirty = false; }, 350);
+}
+['noise', 'mind', 'pad'].forEach(id => $('#' + id).addEventListener('change', applyAdv));
+$('#analyzeBtn').onclick = () => { $('#noise').value = DEF.noise; $('#mind').value = DEF.min; $('#pad').value = DEF.pad; syncAdv(); applyAdv(); };
 function syncAdv() {
   $('#noiseO').textContent = `${$('#noise').value} dB`;
   $('#mindO').textContent = `${num(+$('#mind').value, 1)} s`;
@@ -793,13 +823,13 @@ function syncAdv() {
   ['noise', 'mind', 'pad'].forEach(id => fillRange($('#' + id)));
 }
 ['noise', 'mind', 'pad'].forEach(id => $('#' + id).addEventListener('input', syncAdv));
-const toggleSkip = () => { if (!state.cur || !state.cur.analysis) return; state.skip = !state.skip; localStorage.skip = state.skip ? '1' : '0'; syncSrc(); renderAnalysis(); tlKey = ''; };
+const toggleSkip = () => { if (!state.cur || !state.cur.analysis) return; state.skip = !state.skip; saveSettings(); syncSrc(); renderAnalysis(); tlKey = ''; };
 $('#skipRow').onclick = () => {
   const m = state.cur; if (!m) return;
   if (m.analysis) return toggleSkip();
   const busy = state.jobs.some(j => j.kind === 'analyze' && j.video === m.id && !j.ended);
   if (busy) return toast('Analisi in corso', 'Il salto dei silenzi si attiva appena finisce');
-  state.skip = true; localStorage.skip = '1'; analyze(); toast('Cerco i silenzi…', 'Si attivano da soli appena l\'analisi è pronta');
+  state.skip = true; saveSettings(); analyze(); toast('Cerco i silenzi…', 'Si attivano da soli appena l\'analisi è pronta');
 };
 $('#qSkip').onclick = toggleSkip;
 function findSkip(t) {
@@ -968,10 +998,11 @@ function segInd() {
   if (!on || !on.offsetWidth) { ind.style.opacity = '0'; return; }
   ind.style.opacity = '1'; ind.style.width = `${on.offsetWidth}px`; ind.style.transform = `translateX(${on.offsetLeft}px)`;
 }
-function setSpeed(s) {
+function setSpeed(s, save = true) {
   s = clamp(Math.round(s * 100) / 100, .5, 3);
   const changed = s !== state.speed;
-  state.speed = s; localStorage.speed = s; video.playbackRate = s;
+  state.speed = s; video.playbackRate = s;
+  if (save && changed) saveSettings();
   const r = $('#speed'); r.value = s; fillRange(r);
   tween($('#speedVal'), s, v => `${num(v)}<small>×</small>`, 360);
   $('#qSpeed').textContent = sp(s); $('#qSpeed').classList.toggle('on', s !== 1);
@@ -1001,7 +1032,7 @@ async function closeViewer() {
   if (!reduce) await $('#viewer').animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.98)', filter: 'blur(6px)' }], { duration: 260, easing: 'ease-in', fill: 'forwards' }).finished;
   $('#viewer').getAnimations().forEach(a => a.cancel());
   video.removeAttribute('src'); video.load(); pv.removeAttribute('src');
-  $('#viewer').hidden = true; $('#empty').hidden = false; window.BGFX && BGFX.mode('shapes');
+  $('#viewer').hidden = true; $('#empty').hidden = false; renderPanel(); window.BGFX && BGFX.mode('shapes');
 }
 
 /* ---------- keyboard ---------- */

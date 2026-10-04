@@ -796,21 +796,49 @@ def job_prepare(jid, sp, vid, key, cmd, out_dur, gfile):
                 PREP.pop(k, None)
 
 
+def video_codec(path):
+    r = subprocess.run([FFMPEG, "-hide_banner", "-i", str(path)], capture_output=True, text=True, errors="ignore")
+    for l in r.stderr.splitlines():
+        mm = re.search(r"Stream #\d+:\d+.*: Video: (\w+)", l)
+        if mm and "attached pic" not in l:
+            return mm[1]
+    return None
+
+
+def wait_cut(jid, sp, vid, key):
+    """Se la versione senza pause si sta ancora creando, l'esportazione la aspetta: finisce molto prima
+    che ricominciare da zero dall'originale, e poi l'esportazione e' quasi istantanea."""
+    k = (sp.uid, vid)
+    while PREP.get(k) == key:
+        with LOCK:
+            pj = next((j for j in JOBS.values() if j["kind"] == "prepare" and j["video"] == vid
+                       and j["owner"] == sp.uid and not j["ended"]), None)
+        pr = pj["progress"] if pj else 0.0
+        upd(jid, progress=pr * 0.9, message=f"Aspetto la versione senza pause  {int(pr * 100)}%")
+        time.sleep(1)
+
+
+MAX_COPY_FPS = 91  # fino a 3x di un video a 30 fps senza ricodificare; oltre si ricodifica
+
+
 def job_export(jid, sp, vid, speed, remove):
     lib = sp.lib
     m = load_meta(lib, vid)
-    src, dur = lib / vid / m["file"], m["duration"] or probe_duration(lib / vid / m["file"])
     if remove and not m.get("analysis"):
         raise RuntimeError("Analizza prima i silenzi")
+    if remove and m.get("cut") and m["cut"].get("key") == m["analysis"].get("key") and not cut_ready(m):
+        wait_cut(jid, sp, vid, m["cut"]["key"])
+        m = load_meta(lib, vid)
+    orig = lib / vid / m["file"]
+    dur = m["duration"] or probe_duration(orig)
     is_audio = m.get("audio", False)
     tag = f"{speed:g}x".replace(".", ",") + ("_senza-silenzi" if remove else "")
     name = f"export_{tag}.{'m4a' if is_audio else 'mp4'}"
     out = lib / vid / name
     tmp = lib / vid / f"{name}.part{out.suffix}"
-    keep = None
+    keep, src = None, orig
     if remove and cut_ready(m) and cut_path(lib, vid, m["cut"]).exists():
-        src, keep = cut_path(lib, vid, m["cut"]), None   # la versione senza pause e' gia' pronta
-        base = m["cut"]["duration"]
+        src, base = cut_path(lib, vid, m["cut"]), m["cut"]["duration"]  # versione senza pause gia' pronta
     elif remove:
         keep = keep_segments(m["analysis"]["skips"], dur)
         base = sum(b - a for a, b in keep)
@@ -818,29 +846,41 @@ def job_export(jid, sp, vid, speed, remove):
         base = dur
     out_dur = base / speed
     # peso stimato dell'esportazione: come l'originale, in proporzione alla durata
-    sp.need(int((lib / vid / m["file"]).stat().st_size * out_dur / max(dur or 1, 0.1) * 1.1) + (20 << 20),
-            "questa esportazione")
+    sp.need(int(orig.stat().st_size * out_dur / max(dur or 1, 0.1) * 1.1) + (20 << 20), "questa esportazione")
+    v_idx, a_idx, rate_s, rate = streams(src)
+    if is_audio:
+        v_idx = None
+    # veloce: il video non si ricodifica, si cambiano solo i tempi dei fotogrammi (-itsscale);
+    # si ricodifica solo l'audio con atempo, che costa pochissimo
+    fast = keep is None and (v_idx is None or (video_codec(src) == "h264" and rate * speed <= MAX_COPY_FPS))
     gfile = None
     try:
-        if keep is None and abs(speed - 1) < 1e-3:
-            upd(jid, message="Esportazione...")
-            # senza pause a 1x: e' la versione gia' pronta, basta riunire i pezzi in un unico file
-            r = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", str(src),
-                                "-map", "0", "-c", "copy", "-movflags", "+faststart", str(tmp)],
-                               capture_output=True, text=True, errors="ignore")
-            if r.returncode != 0 or not tmp.exists():
-                raise RuntimeError("ffmpeg: " + r.stderr.strip()[-300:])
+        if fast:
+            one = abs(speed - 1) < 1e-3
+            cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
+            if v_idx is not None:
+                cmd += (["-itsscale", f"{1 / speed:.8f}"] if not one else []) + ["-i", str(src)]
+            cmd += ["-i", str(src)]
+            ai = 1 if v_idx is not None else 0
+            if v_idx is not None:
+                cmd += ["-map", f"0:v:{v_idx}", "-c:v", "copy"]
+            if a_idx is not None:
+                cmd += ["-map", f"{ai}:a:{a_idx}"]
+                cmd += ["-c:a", "copy"] if one else ["-af", atempo_chain(speed), "-c:a", "aac", "-b:a", "128k"]
+            if v_idx is None:
+                cmd += ["-vn"]
+            cmd += ["-sn", "-dn", "-map_metadata", "-1", "-movflags", "+faststart",
+                    "-progress", "pipe:1", "-nostats", str(tmp)]
         else:
-            cmd, _, _, gfile = build_cmd(src, tmp, is_audio, keep=keep, speed=speed, gdir=lib / vid)
-            code, why, err = run_ffmpeg(jid, cmd, sp, out_dur, "Esportazione",
-                                        lambda: mpath(lib, vid).exists())
-            if why == "quota":
-                raise QuotaError(f"Spazio esaurito durante l'esportazione: hai raggiunto {gb(sp.quota)}. "
-                                 "Elimina qualche video e riprova.")
-            if why == "stop":
-                raise RuntimeError("Video eliminato durante l'esportazione")
-            if code != 0 or not tmp.exists() or tmp.stat().st_size == 0:
-                raise RuntimeError("ffmpeg: " + err.strip()[-300:])
+            cmd, _, _, gfile = build_cmd(src, tmp, is_audio, keep=keep, speed=speed, x264="superfast", gdir=lib / vid)
+        code, why, err = run_ffmpeg(jid, cmd, sp, out_dur, "Esportazione", lambda: mpath(lib, vid).exists())
+        if why == "quota":
+            raise QuotaError(f"Spazio esaurito durante l'esportazione: hai raggiunto {gb(sp.quota)}. "
+                             "Elimina qualche video e riprova.")
+        if why == "stop":
+            raise RuntimeError("Video eliminato durante l'esportazione")
+        if code != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+            raise RuntimeError("ffmpeg: " + err.strip()[-300:])
         os.replace(tmp, out)
     finally:
         tmp.unlink(missing_ok=True)
@@ -1108,6 +1148,16 @@ class H(BaseHTTPRequestHandler):
         vid = data.get("id", "")
         if not VID_RE.match(vid) or not mpath(lib, vid).exists():
             return self.err("Video non trovato", 404)
+        if parts == ["api", "settings"]:  # impostazioni del singolo video (velocita', salto delle pause)
+            m = load_meta(lib, vid)
+            st = m.get("settings") or {}
+            if "speed" in data:
+                st["speed"] = round(max(0.5, min(3.0, float(data["speed"]))), 2)
+            if "skip" in data:
+                st["skip"] = bool(data["skip"])
+            m["settings"] = st
+            save_meta(lib, m)
+            return self.send_json({"ok": True, "settings": st})
         if parts == ["api", "archive"]:
             m = load_meta(lib, vid)
             m["archived"] = bool(data.get("archived", True))
