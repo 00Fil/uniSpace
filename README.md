@@ -179,12 +179,6 @@ I log e il terminale dei container sono anche nell'interfaccia di Dokploy (sched
 
 ## Problemi
 
-- **Upload grandi che si interrompono dopo circa 60 s:** Traefik v3 chiude le richieste lente. In Dokploy → **Settings** → **Web Server** → **Traefik** → modifica `traefik.yml` e aggiungi sotto l'entry point `websecure`:
-  ```yaml
-  transport:
-    respondingTimeouts:
-      readTimeout: 0
-  ```
-  poi riavvia Traefik.
+- **Upload di file grandi:** StudyCut carica i file a pezzi da 8 MB, quindi i timeout di Traefik non lo bloccano. Se la connessione cade, riprova da solo fino a 5 volte.
 - **404 su `/<tool>/`:** controlla che la cartella non inizi con `_`, che `id` sia uguale al nome della cartella e che `enabled` non sia `false`. Poi rifai il deploy: le rotte vengono generate durante la build.
 - **502 su un tool con server:** il container non è partito oppure `upstream` non corrisponde al nome del servizio o alla porta. Controlla i log del tool.

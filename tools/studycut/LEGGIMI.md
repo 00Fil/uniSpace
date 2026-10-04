@@ -35,7 +35,9 @@ Al primo avvio l'app installa da sola yt-dlp e ffmpeg in un ambiente separato (`
 - **Velocità:** da 0,5× a 3×, con la voce che resta naturale. Puoi usare i preset o il cursore.
 - **Sensibilità:** soglia in dB, durata minima della pausa e margine, così non si tagliano le parole. Se cambi questi valori, premi "Analizza di nuovo".
 - **Esporta MP4:** crea un file già tagliato e accelerato da vedere su telefono o tablet.
-- Puoi anche **importare un file** (icona in alto o trascinandolo nella finestra).
+- Puoi anche **importare un file** (icona in alto o trascinandolo nella finestra). Il file viene caricato a pezzi e l'avanzamento compare in "In corso". I formati che il browser non riproduce (AVI, WMV, FLV, MPG…) vengono convertiti in MP4.
+- **Libreria:** passando il mouse su un video parte un'anteprima a 10× con i tasti **Apri**, **Archivia** ed **Elimina** (clicca due volte per confermare). Su telefono tieni premuto. I video archiviati restano nella sezione "Archiviati" in fondo alla libreria.
+- Il tasto con la casetta in alto a sinistra torna alla home di uniSpace.
 - Scorciatoie: Spazio, ←/→ (10 s), ↑/↓ (volume), M (muto), F (schermo intero), [ ] (velocità), S (salta silenzi), L e P (sidebar)
 
 I video sono salvati nella cartella `library/`.

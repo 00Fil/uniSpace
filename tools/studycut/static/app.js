@@ -72,20 +72,16 @@ function setSide(w, open, persist = true) {
   setTimeout(() => { tlKey = ''; segInd(); }, 460);
   renderJobsHeader();
 }
-function initSides() {
-  if (isMob()) { setSide('l', false, false); setSide('r', false, false); }
-  else {
-    setSide('l', localStorage.side_l ? localStorage.side_l === '1' : innerWidth >= 1100, false);
-    setSide('r', localStorage.side_r ? localStorage.side_r === '1' : innerWidth >= 900, false);
-  }
-}
+// alla prima apertura le sidebar si aprono entrambe; poi si ricorda la scelta
+const wantSide = w => isMob() ? false : localStorage['side_' + w] ? localStorage['side_' + w] === '1' : true;
+function initSides() { setSide('l', wantSide('l'), false); setSide('r', wantSide('r'), false); }
 $('#tglL').onclick = () => setSide('l', !sideOpen('l'));
 $('#tglR').onclick = () => setSide('r', !sideOpen('r'));
 $('#actInd').onclick = () => setSide('l', true);
 $('#scrim').onclick = () => { setSide('l', false); setSide('r', false); };
 const fitMob = () => { $('#quality option[value=audio]').textContent = isMob() ? 'Audio' : 'Solo audio'; renderBulk(); syncPaste(); };
-onMq(() => { initSides(); fitMob(); });
-initSides();
+onMq(() => { if (!app.classList.contains('pre')) initSides(); fitMob(); });
+setSide('l', false, false); setSide('r', false, false);
 
 // gesti: swipe dal bordo sinistro = libreria, dal bordo destro = controlli; swipe sul pannello aperto per chiuderlo
 let G = null;
@@ -222,7 +218,7 @@ $('#quality').value = localStorage.quality || '720';
 $('#quality').onchange = e => { localStorage.quality = e.target.value; };
 
 /* ---------- jobs ---------- */
-const KIND = { download: 'Download', analyze: 'Ricerca delle pause', export: 'Esportazione' };
+const KIND = { download: 'Download', upload: 'Caricamento', analyze: 'Ricerca delle pause', export: 'Esportazione' };
 async function pollJobs() {
   try { state.jobs = await api('api/jobs'); } catch { return; }
   for (const j of state.jobs) {
@@ -230,7 +226,7 @@ async function pollJobs() {
     state.seen.add(j.id);
     if (j.status === 'error') { toast(`${KIND[j.kind]} non riuscito`, `${j.title || j.url || ''}\n${j.message}`, 'err'); continue; }
     const r = j.result || {};
-    if (j.kind === 'download') { await loadLib(); if (!state.cur) await open(r.video); analyze(r.video, true); }
+    if (j.kind === 'download' || j.kind === 'upload') { await loadLib(); if (!state.cur) await open(r.video); analyze(r.video, true); }
     if (j.kind === 'analyze') { if (state.cur && state.cur.id === r.video) await open(r.video); else loadLib(); }
     if (j.kind === 'export') { toast('Esportazione pronta', j.title || ''); if (state.cur && state.cur.id === r.video) await open(r.video); }
   }
@@ -293,27 +289,108 @@ function progBtn(btn, job, idle) {
 }
 
 /* ---------- library ---------- */
-const libSeen = new Set(); let libKey = '';
+const libSeen = new Set(); let libKey = '', showArch = false;
+const IC = {
+  play: '<svg viewBox="0 0 24 24"><path d="M8.5 5.6v12.8a1 1 0 0 0 1.5.86l10.4-6.4a1 1 0 0 0 0-1.72L10 4.74a1 1 0 0 0-1.5.86z"/></svg>',
+  arch: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/></svg>',
+  unarch: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M12 17v-5m-2.2 2L12 11.8l2.2 2.2"/></svg>',
+  del: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
+  chev: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+};
+function itemHTML(m, k, nw) {
+  const th = m.thumb ? `media/${m.id}/${m.thumb}` : '';
+  return `<div class="item ${state.cur && state.cur.id === m.id ? 'on' : ''} ${nw && !reduce ? 'in' : ''}" style="--i:${nw ? Math.min(k, 10) : 0}" data-id="${m.id}">
+    <div class="irow">
+      <div class="thumb" style="${th ? `background-image:url('${th}')` : ''}">${m.audio ? `<span class="badge">${ICON.audio}</span>` : ''}</div>
+      <div style="min-width:0"><div class="t">${esc(m.title)}</div>
+      <div class="s">${fmt(m.duration)}${m.analysis ? ` → ${fmt(m.analysis.kept)}` : ''} · ${ago(m.created)}</div></div>
+    </div>
+    <div class="pvw"><div class="pvw-in">
+      <div class="pvw-media${m.audio ? ' audio' : ''}" style="${th ? `background-image:url('${th}')` : ''}"></div>
+      <div class="resin"></div>
+      <button class="pa pa-side" data-act="${m.archived ? 'unarchive' : 'archive'}" title="${m.archived ? 'Ripristina' : 'Archivia'}">${m.archived ? IC.unarch : IC.arch}</button>
+      <button class="pa pa-open" data-act="open">${IC.play}<span>Apri</span></button>
+      <button class="pa pa-side pa-del" data-act="delete" title="Elimina">${IC.del}<span>Elimina?</span></button>
+      <div class="pvw-speed">10×</div>
+    </div></div>
+  </div>`;
+}
 async function loadLib() {
   state.lib = await api('api/library');
-  $('#libCount').textContent = state.lib.length || '';
+  const live = state.lib.filter(m => !m.archived), arch = state.lib.filter(m => m.archived);
+  $('#libCount').textContent = live.length || '';
   const el = $('#lib');
-  const key = JSON.stringify(state.lib.map(m => [m.id, m.thumb, m.title, m.analysis && m.analysis.kept])) + (state.cur && state.cur.id);
+  const key = JSON.stringify(state.lib.map(m => [m.id, m.thumb, m.title, m.archived, m.analysis && m.analysis.kept])) + (state.cur && state.cur.id) + showArch;
   if (key === libKey) return; libKey = key;
-  if (!state.lib.length) { el.innerHTML = '<div class="lib-empty">Ancora nessun video. Incolla dei link oppure trascina dei file nella finestra.</div>'; return; }
+  stopPreview();
   let k = 0;
-  el.innerHTML = state.lib.map(m => { const nw = !libSeen.has(m.id); libSeen.add(m.id);
-    return `<div class="item ${state.cur && state.cur.id === m.id ? 'on' : ''} ${nw && !reduce ? 'in' : ''}" style="--i:${nw ? Math.min(k++, 10) : 0}" data-id="${m.id}">
-    <div class="thumb" style="${m.thumb ? `background-image:url('media/${m.id}/${m.thumb}')` : ''}">${m.audio ? `<span class="badge">${ICON.audio}</span>` : ''}</div>
-    <div style="min-width:0"><div class="t">${esc(m.title)}</div>
-    <div class="s">${fmt(m.duration)}${m.analysis ? ` → ${fmt(m.analysis.kept)}` : ''} · ${ago(m.created)}</div></div></div>`; }).join('');
+  const mk = m => { const nw = !libSeen.has(m.id); libSeen.add(m.id); return itemHTML(m, nw ? k++ : 0, nw); };
+  el.innerHTML = (live.length ? live.map(mk).join('') : '<div class="lib-empty">Ancora nessun video. Incolla dei link oppure trascina dei file nella finestra.</div>')
+    + (arch.length ? `<button class="arch-h ${showArch ? 'open' : ''}" id="archTgl">${IC.chev}<span>Archiviati</span><em>${arch.length}</em></button>
+      <div class="arch-l ${showArch ? 'open' : ''}"><div>${arch.map(mk).join('')}</div></div>` : '');
 }
-$('#lib').addEventListener('click', e => {
+// anteprima al passaggio del mouse: video muto a 10× sotto un vetro sfocato
+let pvItem = null, pvTimer = 0;
+function startPreview(it) {
+  if (pvItem === it) return; stopPreview(); pvItem = it; it.classList.add('hov');
+  const m = state.lib.find(x => x.id === it.dataset.id); if (!m || m.audio) return;
+  const box = it.querySelector('.pvw-media');
+  const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
+  v.src = `media/${m.id}/${m.file}`;
+  v.addEventListener('loadedmetadata', () => { v.currentTime = (v.duration || 0) * .08; v.playbackRate = 10; v.play().catch(() => {}); }, { once: true });
+  v.addEventListener('playing', () => v.classList.add('on'), { once: true });
+  box.append(v);
+}
+function stopPreview() {
+  clearTimeout(pvTimer); const it = pvItem; pvItem = null; if (!it) return;
+  it.classList.remove('hov'); const d = it.querySelector('.pa-del'); d && d.classList.remove('arm');
+  const v = it.querySelector('.pvw-media video');
+  if (v) setTimeout(() => { if (pvItem === it) return; v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }, 380);
+}
+const libEl = $('#lib');
+libEl.addEventListener('pointerover', e => {
+  if (e.pointerType !== 'mouse') return; const it = e.target.closest('.item'); if (!it || it === pvItem) return;
+  clearTimeout(pvTimer); pvTimer = setTimeout(() => startPreview(it), pvItem ? 60 : 260);
+});
+libEl.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') stopPreview(); });
+libEl.addEventListener('pointerout', e => { if (e.pointerType !== 'mouse') return; const it = e.target.closest('.item');
+  if (it && !it.contains(e.relatedTarget)) { clearTimeout(pvTimer); if (it === pvItem) stopPreview(); } });
+// touch: pressione lunga per aprire l'anteprima con i pulsanti
+let lp = 0;
+libEl.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') return; const it = e.target.closest('.item'); if (!it || e.target.closest('.pa')) return;
+  clearTimeout(lp); lp = setTimeout(() => { it._lp = true; it === pvItem ? stopPreview() : startPreview(it); navigator.vibrate && navigator.vibrate(8); }, 450); });
+['pointerup', 'pointercancel', 'pointermove'].forEach(ev => libEl.addEventListener(ev, e => { if (ev !== 'pointermove' || Math.abs(e.movementY) > 2) clearTimeout(lp); }));
+libEl.addEventListener('contextmenu', e => { if (e.target.closest('.item') && matchMedia('(hover:none)').matches) e.preventDefault(); });
+
+libEl.addEventListener('click', async e => {
+  if (e.target.closest('#archTgl')) { showArch = !showArch; libKey = ''; return loadLib(); }
   const it = e.target.closest('.item'); if (!it) return;
+  if (it._lp) { it._lp = false; return; }
+  const id = it.dataset.id, act = (e.target.closest('.pa') || {}).dataset?.act || 'open';
+  e.stopPropagation();
+  if (act === 'archive' || act === 'unarchive') {
+    await post('api/archive', { id, archived: act === 'archive' });
+    await vanish(it); if (act === 'archive' && state.cur && state.cur.id === id) closeViewer();
+    libKey = ''; return loadLib();
+  }
+  if (act === 'delete') {
+    const b = it.querySelector('.pa-del');
+    if (!b.classList.contains('arm')) { b.classList.add('arm'); clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('arm'), 3000); return; }
+    await api(`api/video/${id}`, { method: 'DELETE' });
+    await vanish(it); if (state.cur && state.cur.id === id) closeViewer();
+    libKey = ''; return loadLib();
+  }
+  stopPreview();
   document.querySelectorAll('#lib .item.on').forEach(x => x.classList.remove('on')); it.classList.add('on');
   if (isMob()) setSide('l', false);
-  open(it.dataset.id);
+  open(id);
 });
+async function vanish(it) {
+  stopPreview(); if (reduce) return;
+  const h = it.offsetHeight;
+  await it.animate([{ opacity: 1, height: h + 'px', filter: 'blur(0)' }, { opacity: 0, height: '0px', marginTop: '-2px', filter: 'blur(6px)', transform: 'scale(.96)' }],
+    { duration: 320, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' }).finished;
+}
 
 async function open(id) {
   if (!id) return;
@@ -375,23 +452,45 @@ $('#exports').addEventListener('click', async e => {
   renderExports();
 });
 
-/* ---------- import ---------- */
+/* ---------- import (upload a pezzi: niente timeout del proxy, avanzamento e ripresa) ---------- */
+const UP_EXT = ['mp4', 'webm', 'mkv', 'mov', 'm4v', 'm4a', 'mp3', 'wav', 'opus', 'ogg', 'aac', 'flac', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', 'ts', 'mts', 'm2ts', '3gp', 'wma'];
+const CHUNK = 8 << 20;
+let uploading = 0;
 $('#importBtn').onclick = () => $('#fileInput').click();
-$('#fileInput').onchange = e => { [...e.target.files].forEach(importFile); e.target.value = ''; };
-function importFile(f) {
-  const x = new XMLHttpRequest();
-  x.open('POST', 'api/import'); x.setRequestHeader('X-Filename', encodeURIComponent(f.name));
-  x.onload = async () => { let j = {}; try { j = JSON.parse(x.responseText); } catch {}
-    if (x.status === 200) { await loadLib(); if (!state.cur) await open(j.id); analyze(j.id, true); }
-    else toast('Importazione non riuscita', `${f.name}\n${j.error || ''}`, 'err'); };
-  x.onerror = () => toast('Importazione non riuscita', f.name, 'err');
-  x.send(f);
+$('#fileInput').onchange = e => { importFiles(e.target.files); e.target.value = ''; };
+function importFiles(list) {
+  const files = [...(list || [])];
+  const bad = files.filter(f => !UP_EXT.includes((f.name.split('.').pop() || '').toLowerCase()));
+  if (bad.length) toast('Formato non supportato', bad.map(f => f.name).join('\n'), 'err');
+  files.filter(f => !bad.includes(f)).forEach(importFile);
 }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function importFile(f) {
+  uploading++;
+  try {
+    const { id } = await post('api/upload', { name: f.name, size: f.size });
+    pollJobs();
+    let off = 0, fails = 0;
+    while (off < f.size) {
+      const r = await fetch(`api/upload/${id}?offset=${off}`, { method: 'PUT', body: f.slice(off, Math.min(off + CHUNK, f.size)),
+        headers: { 'Content-Type': 'application/octet-stream' } }).catch(() => null);
+      const j = r ? await r.json().catch(() => ({})) : {};
+      if (r && (r.ok || r.status === 409) && typeof j.got === 'number') { off = j.got; fails = 0; continue; }
+      if (r && r.status === 404) throw new Error(j.error || 'Caricamento scaduto');
+      if (++fails > 5) throw new Error(j.error || 'Connessione persa durante il caricamento');
+      await sleep(1000 * fails);
+    }
+    await post(`api/upload/${id}/done`, {});
+    pollJobs();
+  } catch (err) { toast('Importazione non riuscita', `${f.name}\n${err.message}`, 'err'); }
+  finally { uploading--; }
+}
+addEventListener('beforeunload', e => { if (uploading) { e.preventDefault(); e.returnValue = ''; } });
 let dragN = 0;
 addEventListener('dragenter', e => { if ([...e.dataTransfer.types].includes('Files')) { dragN++; $('#drop').classList.add('show'); } });
 addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; $('#drop').classList.remove('show'); } });
-addEventListener('dragover', e => e.preventDefault());
-addEventListener('drop', e => { e.preventDefault(); dragN = 0; $('#drop').classList.remove('show'); [...e.dataTransfer.files].forEach(importFile); });
+addEventListener('dragover', e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; });
+addEventListener('drop', e => { e.preventDefault(); dragN = 0; $('#drop').classList.remove('show'); importFiles(e.dataTransfer.files); });
 
 /* ---------- silences ---------- */
 async function analyze(id, quiet) {
@@ -602,11 +701,16 @@ $('#exportBtn').onclick = async () => {
 $('#delBtn').onclick = async () => {
   const m = state.cur; if (!confirm(`Eliminare "${m.title}" e le sue esportazioni?`)) return;
   await api(`api/video/${m.id}`, { method: 'DELETE' });
+  await closeViewer(); libKey = ''; loadLib();
+};
+async function closeViewer() {
+  if (!state.cur) return;
+  state.cur = null; video.pause();
   if (!reduce) await $('#viewer').animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.98)', filter: 'blur(6px)' }], { duration: 260, easing: 'ease-in', fill: 'forwards' }).finished;
   $('#viewer').getAnimations().forEach(a => a.cancel());
-  video.removeAttribute('src'); video.load(); pv.removeAttribute('src'); state.cur = null;
-  $('#viewer').hidden = true; $('#empty').hidden = false; window.BGFX && BGFX.mode('shapes'); loadLib();
-};
+  video.removeAttribute('src'); video.load(); pv.removeAttribute('src');
+  $('#viewer').hidden = true; $('#empty').hidden = false; window.BGFX && BGFX.mode('shapes');
+}
 
 /* ---------- keyboard ---------- */
 addEventListener('keydown', e => {
@@ -622,14 +726,22 @@ addEventListener('keydown', e => {
 });
 
 /* ---------- boot ---------- */
+if (location.pathname === '/' || location.pathname === '/index.html') $('#homeBtn').hidden = true; // in locale non c'è la home
+
 (async () => {
   setSpeed(state.speed); syncAdv(); applyVol(); syncPlay(); fitMob();
-  setTimeout(() => app.classList.remove('boot'), 1300);
   try { const st = await api('api/status');
     if (!st.ffmpeg || !st.ytdlp) $('#status').textContent = !st.ffmpeg ? 'ffmpeg mancante' : 'yt-dlp mancante'; } catch {}
   await firstPoll;
   await loadLib();
-  if (state.lib[0]) await open(state.lib[0].id); else window.BGFX && BGFX.mode('shapes');
+  const first = state.lib.find(m => !m.archived);
+  if (first) await open(first.id); else window.BGFX && BGFX.mode('shapes');
   pollJobs();
+  // l'interfaccia entra solo quando lo sfondo ha finito: prima la barra in alto, poi le sidebar insieme con un rimbalzo
+  await Promise.race([window.BGFX ? BGFX.shown : Promise.resolve(), sleep(2600)]);
+  app.classList.remove('pre'); app.classList.add('intro');
+  await sleep(reduce ? 0 : 420);
+  initSides();
+  setTimeout(() => app.classList.remove('intro', 'intro-sides'), 1300);
   requestAnimationFrame(loop);
 })();

@@ -129,7 +129,7 @@ void main(){
   function ShapeWaves(canvas, o) {
     const S = Object.assign({ text: '', fontFamily: 'Inter, "SF Pro Display", -apple-system, "Segoe UI", system-ui, sans-serif',
       fontWeight: 600, textSize: 0.6, cellSize: 10, dotSize: 0.75, color: '#929292', hoverColor: '#ffffff', backgroundColor: '#000000',
-      speed: 1, scale: 1, contrast: 1, brightness: 0.4, fade: 0.25, splashRadius: 40, splashStrength: 0.4, introDuration: 1.6,
+      speed: 1, scale: 1, contrast: 1, brightness: 0.4, fade: 0.25, splashRadius: 40, splashStrength: 0.4, introDuration: 1.15,
       textBox: null }, o);
     const gl = makeGL(canvas); if (!gl) return null;
     const u = program(gl, SHAPES_FRAG);
@@ -338,10 +338,16 @@ void main(){
   } catch (e) { console.warn('GradientWaves', e); }
   let raf = 0;
   new ResizeObserver(() => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; shapes && shapes.relayout(); }); }).observe(stage);
-  let mode = null;
+  let mode = null, shownDone;
+  const FADE_MS = 750; // = transizione di opacity dei canvas in app.css
+  const shown = new Promise(r => { shownDone = r; });
+  if (!shapes && !waves) shownDone();
   window.BGFX = {
+    shown, // si risolve quando la prima animazione di comparsa dello sfondo e' finita
     mode(m) {
-      if (m === mode) return; mode = m;
+      if (m === mode) return;
+      if (mode === null) setTimeout(shownDone, reduce.matches ? 0 : m === 'shapes' && shapes ? Math.max(FADE_MS, 1150) : FADE_MS);
+      mode = m;
       root.dataset.mode = m;
       if (m === 'shapes') { waves && setTimeout(() => mode === 'shapes' && waves.stop(), 900); shapes && shapes.start(); }
       else { waves && waves.start(); shapes && setTimeout(() => mode !== 'shapes' && shapes.stop(), 900); }

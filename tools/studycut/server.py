@@ -7,13 +7,24 @@ from pathlib import Path
 from urllib.parse import urlparse, quote, parse_qs
 
 BASE = Path(__file__).resolve().parent
-LIB = BASE / "library"
+LIB = Path(os.environ.get("STUDYCUT_LIBRARY") or BASE / "library")
 STATIC = BASE / "static"
 LIB.mkdir(exist_ok=True)
 HOST = os.environ.get("STUDYCUT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("STUDYCUT_PORT", "8765"))
 COOKIES = os.environ.get("STUDYCUT_COOKIES")  # file cookies.txt (formato Netscape), utile su VPS
 VID_RE = re.compile(r"^[a-f0-9]{10}$")
+# formati che il browser riproduce cosi' come sono / formati da convertire in MP4 all'importazione
+PLAYABLE = (".mp4", ".webm", ".mkv", ".mov", ".m4v", ".m4a", ".mp3", ".wav", ".opus", ".ogg", ".aac", ".flac")
+CONVERT = (".avi", ".wmv", ".flv", ".mpg", ".mpeg", ".ts", ".mts", ".m2ts", ".3gp", ".wma")
+UPLOADS, UP_LOCK = {}, threading.Lock()
+
+
+def clean_partials():
+    """All'avvio toglie le cartelle rimaste senza meta.json (upload/download interrotti)."""
+    for d in LIB.iterdir():
+        if d.is_dir() and VID_RE.match(d.name) and not (d / "meta.json").exists():
+            shutil.rmtree(d, ignore_errors=True)
 
 
 def find_ffmpeg():
@@ -118,7 +129,24 @@ def probe(path):
     return dur, has_video
 
 
-def finalize(vid, path, title, source):
+def to_mp4(path, jid=None):
+    """Converte in MP4 (H.264/AAC) i formati che il browser non riproduce."""
+    dst = path.with_name("video.mp4")
+    if jid:
+        upd(jid, message="Converto in MP4...")
+    r = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(path),
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(dst)],
+                       capture_output=True, text=True, errors="ignore")
+    if r.returncode != 0 or not dst.exists():
+        raise RuntimeError("Conversione non riuscita: " + r.stderr.strip()[-300:])
+    path.unlink(missing_ok=True)
+    return dst
+
+
+def finalize(vid, path, title, source, jid=None):
+    if path.suffix.lower() in CONVERT:
+        path = to_mp4(path, jid)
     dur, has_video = probe(path)
     thumb = LIB / vid / "thumb.jpg"
     for ext in (".jpg", ".webp", ".png"):
@@ -133,7 +161,7 @@ def finalize(vid, path, title, source):
                     str(thumb)], capture_output=True)
     m = {"id": vid, "title": title, "source": source, "created": time.time(),
          "duration": dur, "file": path.name, "thumb": thumb.name if thumb.exists() else None,
-         "audio": not has_video,
+         "audio": not has_video, "archived": False,
          "analysis": None, "exports": []}
     save_meta(m)
     return m
@@ -386,8 +414,37 @@ class H(BaseHTTPRequestHandler):
         self.send_json({"error": msg}, code)
 
     def body(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        return json.loads(self.rfile.read(n) or b"{}") if n else {}
+        return json.loads(b"".join(self.stream()) or b"{}")
+
+    def stream(self, limit=None):
+        """Legge il corpo della richiesta a blocchi, con Content-Length o Transfer-Encoding: chunked
+        (alcuni proxy HTTP/2 -> HTTP/1.1 non inoltrano Content-Length)."""
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            while True:
+                size = int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)
+                if size == 0:
+                    while self.rfile.readline() not in (b"\r\n", b"\n", b""):
+                        pass
+                    return
+                while size > 0:
+                    chunk = self.rfile.read(min(1 << 20, size))
+                    if not chunk:
+                        return
+                    size -= len(chunk)
+                    yield chunk
+                self.rfile.readline()
+        else:
+            n = int(self.headers.get("Content-Length") or 0)
+            while n > 0:
+                chunk = self.rfile.read(min(1 << 20, n))
+                if not chunk:
+                    return
+                n -= len(chunk)
+                yield chunk
+
+    def drain(self):
+        for _ in self.stream():
+            pass
 
     def send_file(self, path, download_name=None):
         size = path.stat().st_size
@@ -484,10 +541,13 @@ class H(BaseHTTPRequestHandler):
     # ---- POST
     def do_POST(self):
         if self.cross_site():
+            self.drain()
             return self.err("Richiesta non consentita", 403)
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         if parts == ["api", "import"]:
             return self.import_file()
+        if parts[:2] == ["api", "upload"]:
+            return self.upload_post(parts[2:])
         try:
             data = self.body()
         except Exception:
@@ -509,6 +569,11 @@ class H(BaseHTTPRequestHandler):
         vid = data.get("id", "")
         if not VID_RE.match(vid) or not mpath(vid).exists():
             return self.err("Video non trovato", 404)
+        if parts == ["api", "archive"]:
+            m = load_meta(vid)
+            m["archived"] = bool(data.get("archived", True))
+            save_meta(m)
+            return self.send_json(m)
         if parts == ["api", "analyze"]:
             noise = max(-80.0, min(-5.0, float(data.get("noise", -35))))
             mind = max(0.1, min(10.0, float(data.get("min", 0.6))))
@@ -527,32 +592,128 @@ class H(BaseHTTPRequestHandler):
         self.err("Non trovato", 404)
 
     def import_file(self):
-        if not FFMPEG:
-            return self.err("ffmpeg non trovato")
+        """Upload in un'unica richiesta (versione locale / compatibilita')."""
         from urllib.parse import unquote
         name = unquote(self.headers.get("X-Filename", "video.mp4"))
         ext = Path(name).suffix.lower()
-        if ext not in (".mp4", ".webm", ".mkv", ".mov", ".m4v", ".m4a", ".mp3", ".wav", ".opus", ".ogg"):
-            return self.err("Formato non supportato")
-        n = int(self.headers.get("Content-Length") or 0)
+        if not FFMPEG or ext not in PLAYABLE + CONVERT:
+            self.drain()
+            return self.err("ffmpeg non trovato" if not FFMPEG else f"Formato {ext or 'sconosciuto'} non supportato")
         vid = uuid.uuid4().hex[:10]
         d = LIB / vid
         d.mkdir()
         dst = d / ("video" + ext)
-        with open(dst, "wb") as f:
-            while n > 0:
-                chunk = self.rfile.read(min(1 << 20, n))
-                if not chunk:
-                    break
-                f.write(chunk); n -= len(chunk)
-        m = finalize(vid, dst, Path(name).stem, "file locale")
+        try:
+            with open(dst, "wb") as f:
+                for chunk in self.stream():
+                    f.write(chunk)
+            if dst.stat().st_size == 0:
+                raise RuntimeError("Il file e' arrivato vuoto")
+            m = finalize(vid, dst, Path(name).stem, "file locale")
+        except Exception as e:
+            shutil.rmtree(d, ignore_errors=True)
+            return self.err(str(e) or "Importazione non riuscita", 500)
         self.send_json(m)
+
+    # ---- upload a pezzi: POST api/upload {name,size} -> PUT api/upload/<id>?offset=N -> POST api/upload/<id>/done
+    def upload_post(self, rest):
+        try:
+            data = self.body()
+        except Exception:
+            return self.err("JSON non valido")
+        if not rest:
+            if not FFMPEG:
+                return self.err("ffmpeg non trovato")
+            name = str(data.get("name") or "video.mp4")[:200]
+            size = int(data.get("size") or 0)
+            ext = Path(name).suffix.lower()
+            if ext not in PLAYABLE + CONVERT:
+                return self.err(f"Formato {ext or 'sconosciuto'} non supportato")
+            if size <= 0:
+                return self.err("Il file e' vuoto")
+            free = shutil.disk_usage(LIB).free
+            if size * (2 if ext in CONVERT else 1) + (200 << 20) > free:
+                return self.err(f"Spazio insufficiente sul server ({free / 1e9:.1f} GB liberi)", 507)
+            vid = uuid.uuid4().hex[:10]
+            d = LIB / vid
+            d.mkdir()
+            title = Path(name).stem
+            jid = new_job("upload", vid, title=title)
+            upd(jid, status="running", message="Caricamento 0%")
+            with UP_LOCK:
+                UPLOADS[vid] = {"path": d / ("video" + ext + ".part"), "ext": ext, "size": size, "got": 0,
+                                "jid": jid, "title": title, "lock": threading.Lock(), "seen": time.time()}
+            UPLOADS[vid]["path"].touch()
+            return self.send_json({"id": vid, "job": jid})
+        up = UPLOADS.get(rest[0])
+        if not up:
+            return self.err("Caricamento non trovato o scaduto", 404)
+        if rest[1:] == ["done"]:
+            if up["got"] != up["size"]:
+                return self.err(f"Caricamento incompleto ({up['got']} di {up['size']} byte)", 409)
+            with UP_LOCK:
+                UPLOADS.pop(rest[0], None)
+            vid, jid = rest[0], up["jid"]
+            dst = up["path"].with_name("video" + up["ext"])
+            os.replace(up["path"], dst)
+
+            def work(jid):
+                upd(jid, progress=0.97, message="Creo anteprima...")
+                m = finalize(vid, dst, up["title"], "file locale", jid)
+                upd(jid, result={"video": vid}, message=m["title"])
+
+            def worker():
+                try:
+                    work(jid)
+                    upd(jid, status="done", progress=1.0, ended=time.time())
+                except Exception as e:  # noqa
+                    shutil.rmtree(LIB / vid, ignore_errors=True)
+                    upd(jid, status="error", message=str(e).strip()[-400:] or "Errore", ended=time.time())
+            threading.Thread(target=worker, daemon=True).start()
+            return self.send_json({"job": jid})
+        self.err("Non trovato", 404)
+
+    def do_PUT(self):
+        if self.cross_site():
+            self.drain()
+            return self.err("Richiesta non consentita", 403)
+        u = urlparse(self.path)
+        parts = [p for p in u.path.split("/") if p]
+        up = UPLOADS.get(parts[2]) if len(parts) == 3 and parts[:2] == ["api", "upload"] else None
+        if not up:
+            self.drain()
+            return self.err("Caricamento non trovato o scaduto", 404)
+        offset = int((parse_qs(u.query).get("offset") or ["0"])[0])
+        with up["lock"]:
+            if offset != up["got"]:
+                self.drain()
+                return self.send_json({"error": "offset errato", "got": up["got"]}, 409)
+            n = 0
+            with open(up["path"], "r+b") as f:
+                f.seek(offset); f.truncate()
+                for chunk in self.stream():
+                    if offset + n + len(chunk) > up["size"]:
+                        chunk = chunk[:max(0, up["size"] - offset - n)]
+                    f.write(chunk); n += len(chunk)
+            up["got"] = offset + n
+            up["seen"] = time.time()
+        p = up["got"] / up["size"]
+        upd(up["jid"], progress=p * 0.96,
+            message=f"Caricamento {int(p * 100)}%  ·  {up['got'] / 1e6:.0f} di {up['size'] / 1e6:.0f} MB")
+        self.send_json({"got": up["got"]})
 
     # ---- DELETE
     def do_DELETE(self):
         if self.cross_site():
             return self.err("Richiesta non consentita", 403)
         parts = [p for p in urlparse(self.path).path.split("/") if p]
+        if len(parts) == 3 and parts[:2] == ["api", "upload"]:
+            with UP_LOCK:
+                up = UPLOADS.pop(parts[2], None)
+            if up:
+                shutil.rmtree(LIB / parts[2], ignore_errors=True)
+                upd(up["jid"], status="error", message="Caricamento annullato", ended=time.time())
+            return self.send_json({"ok": True})
         if len(parts) >= 3 and parts[:2] == ["api", "video"] and VID_RE.match(parts[2]):
             vid = parts[2]
             if len(parts) == 3:
@@ -569,7 +730,22 @@ class H(BaseHTTPRequestHandler):
         self.err("Non trovato", 404)
 
 
+def janitor():
+    """Elimina i caricamenti fermi da piu' di un'ora (es. browser chiuso a meta')."""
+    while True:
+        time.sleep(600)
+        now = time.time()
+        with UP_LOCK:
+            stale = [k for k, u in UPLOADS.items() if now - u["seen"] > 3600]
+            for k in stale:
+                u = UPLOADS.pop(k)
+                shutil.rmtree(LIB / k, ignore_errors=True)
+                upd(u["jid"], status="error", message="Caricamento scaduto", ended=now)
+
+
 def main():
+    clean_partials()
+    threading.Thread(target=janitor, daemon=True).start()
     srv = ThreadingHTTPServer((HOST, PORT), H)
     url = f"http://{HOST}:{PORT}"
     print(f"\n  StudyCut e' attivo su {url}\n  (chiudi questa finestra o premi Ctrl+C per uscire)\n")
