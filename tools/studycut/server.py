@@ -243,6 +243,94 @@ def library(lib):
 
 
 # ---------------------------------------------------------------- download
+# ---------------------------------------------------------------- anteprima link e ricerca su YouTube
+LOOK_CACHE, LOOK_LOCK, LOOK_SEM = {}, threading.Lock(), threading.Semaphore(4)
+
+
+def _thumb(e):
+    if e.get("thumbnail"):
+        return e["thumbnail"]
+    th = [t for t in (e.get("thumbnails") or []) if t.get("url")]
+    mid = [t for t in th if 200 <= (t.get("width") or 0) <= 720]
+    if mid or th:
+        return (mid or th)[-1]["url"]
+    if e.get("id") and "youtube" in str(e.get("ie_key") or e.get("extractor_key") or e.get("url") or "").lower():
+        return f"https://i.ytimg.com/vi/{e['id']}/mqdefault.jpg"
+    return None
+
+
+def _brief(e, url=None):
+    u = url or e.get("webpage_url") or e.get("url") or ""
+    if e.get("id") and not u.startswith("http"):
+        u = f"https://www.youtube.com/watch?v={e['id']}"
+    return {"url": u, "title": e.get("title") or "", "channel": e.get("channel") or e.get("uploader") or "",
+            "duration": e.get("duration"), "views": e.get("view_count"), "thumb": _thumb(e),
+            "live": e.get("live_status") in ("is_live", "is_upcoming") or bool(e.get("is_live")),
+            "date": e.get("upload_date"), "site": e.get("extractor_key") or e.get("ie_key") or "",
+            "playlist": e.get("_type") == "playlist"}
+
+
+YT_ID = re.compile(r"(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|embed/|live/)|youtu\.be/)([\w-]{11})")
+
+
+def yt_id(url):
+    m = YT_ID.search(url)
+    return m and m[1]
+
+
+def yt_oembed(url, vid):
+    import urllib.request
+    r = json.loads(urllib.request.urlopen("https://www.youtube.com/oembed?format=json&url=" + quote(url, safe=""), timeout=10).read())
+    return {"url": url, "title": r.get("title") or "", "channel": r.get("author_name") or "", "duration": None, "views": None,
+            "thumb": f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg", "live": False, "date": None, "site": "Youtube", "playlist": False}
+
+
+def yt_look(kind, value):
+    """kind "probe": informazioni su un link (senza scaricare) · kind "search": primi risultati su YouTube."""
+    key = (kind, value)
+    with LOOK_LOCK:
+        hit = LOOK_CACHE.get(key)
+        if hit and time.time() - hit[0] < 900:
+            return hit[1]
+    try:
+        import yt_dlp
+    except ImportError:
+        raise RuntimeError("yt-dlp non installato")
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True,
+            "extract_flat": True if kind == "search" else "in_playlist", "socket_timeout": 15,
+            # titoli originali (senza traduzione automatica in inglese)
+            "extractor_args": {"youtube": {"lang": [os.environ.get("STUDYCUT_LANG", "it")]}}}
+    if COOKIES and Path(COOKIES).is_file():
+        opts["cookiefile"] = COOKIES
+    with LOOK_SEM:
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                if kind == "search":
+                    info = ydl.extract_info(f"ytsearch12:{value}", download=False)
+                    out = [_brief(e) for e in (info.get("entries") or []) if e and e.get("id")]
+                    out = [r for r in out if not r["playlist"]][:10]
+                elif yt_id(value):
+                    # video YouTube: la ricerca per id e' veloce e non incappa nel controllo "non sei un bot"
+                    vid = yt_id(value)
+                    info = ydl.extract_info(f'ytsearch5:"{vid}"', download=False)
+                    hit = next((e for e in (info.get("entries") or []) if e and e.get("id") == vid), None)
+                    out = _brief(hit, value) if hit else yt_oembed(value, vid)
+                else:
+                    # process=False: solo i dati della pagina, senza scegliere i formati (molto piu' veloce)
+                    info = ydl.extract_info(value, download=False, process=False)
+                    if info.get("_type") == "url" and info.get("url") and info.get("url") != value:
+                        info = ydl.extract_info(info["url"], download=False, process=False)
+                    out = _brief(info, value)
+        except Exception as e:
+            msg = re.sub(r"\x1b\[[0-9;]*m", "", str(e)).replace("ERROR: ", "")
+            raise RuntimeError(re.sub(r"^\[[^\]]+\]\s*[\w-]*:?\s*", "", msg)[:300] or "Non trovato")
+    with LOOK_LOCK:
+        if len(LOOK_CACHE) > 400:
+            LOOK_CACHE.clear()
+        LOOK_CACHE[key] = (time.time(), out)
+    return out
+
+
 def job_download(jid, sp, url, quality):
     try:
         import yt_dlp
@@ -622,6 +710,22 @@ class H(BaseHTTPRequestHandler):
         if parts == ["api", "space"]:
             return self.send_json({"used": sp.used(), "quota": sp.quota, "multiuser": bool(USERS_ROOT),
                                    "user": self.headers.get("X-User-Name") if USERS_ROOT else None})
+        if parts == ["api", "probe"]:
+            url = (parse_qs(u.query).get("url") or [""])[0].strip()
+            if not re.match(r"^https?://\S+$", url) or len(url) > 2000:
+                return self.err("Link non valido")
+            try:
+                return self.send_json(yt_look("probe", url))
+            except Exception as e:
+                return self.err(str(e), 422)
+        if parts == ["api", "search"]:
+            q = re.sub(r"\s+", " ", (parse_qs(u.query).get("q") or [""])[0]).strip()
+            if not 1 <= len(q) <= 150:
+                return self.err("Scrivi cosa cercare")
+            try:
+                return self.send_json({"q": q, "results": yt_look("search", q)})
+            except Exception as e:
+                return self.err(str(e), 422)
         if parts == ["api", "library"]:
             return self.send_json(library(lib))
         if len(parts) == 3 and parts[:2] == ["api", "video"] and VID_RE.match(parts[2]):

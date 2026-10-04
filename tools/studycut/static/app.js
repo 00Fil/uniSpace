@@ -162,6 +162,11 @@ function toast(title, msg = '', kind = 'ok') {
 }
 
 /* ---------- link input (bulk) ---------- */
+// anteprime e ricerche (vedi sotto): dichiarate qui perché la lista dei link le usa subito
+const INFO = new Map();                       // link -> {title, channel, duration, views, thumb}
+const PROBES = new Map(), SEARCHES = new Map();
+const probe = url => { if (!PROBES.has(url)) { const p = api('api/probe?url=' + encodeURIComponent(url)); PROBES.set(url, p); p.catch(() => PROBES.delete(url)); } return PROBES.get(url); };
+let look = { mode: null, q: '', data: null, sel: -1 }, lookT = 0, lookSeq = 0;
 const URL_RE = /https?:\/\/[^\s"'<>,;]+/g;
 const extract = t => (t.match(URL_RE) || []).flatMap(u => u.split(/(?=https?:\/\/)/)).filter(Boolean);
 const shownLinks = new Set();
@@ -176,14 +181,15 @@ function renderBulk() {
   const n = state.links.length, c = $('#count');
   c.textContent = n || lastN || ''; c.classList.toggle('hide', n === 0);
   if (n && n !== lastN) bump(c); lastN = n;
-  $('#hc').classList.toggle('open', n > 0 && bulkOpen);
+  $('#hc').classList.toggle('open', n > 0 && bulkOpen && !look.mode);
   $('#bulkT').textContent = n === 1 ? '1 link pronto' : `${n} link pronti`;
   let k = 0;
   $('#bulkL').innerHTML = state.links.map((u, i) => { const s = shortUrl(u), nw = !shownLinks.has(u);
-    return `<li class="${nw ? 'in' : ''}" style="--i:${nw ? k++ : 0}"><span class="u"><b>${esc(s.host)}</b>${esc(s.rest)}</span><button type="button" class="ib" data-i="${i}" title="Rimuovi">${ICON.x}</button></li>`; }).join('');
+    return `<li class="${nw ? 'in' : ''}" style="--i:${nw ? k++ : 0}">${linkHTML(u, s)}<button type="button" class="ib" data-i="${i}" title="Rimuovi">${ICON.x}</button></li>`; }).join('');
   shownLinks.clear(); state.links.forEach(u => shownLinks.add(u));
-  swapText($('#dlLbl'), n > 1 ? `Scarica ${n}` : 'Scarica');
-  $('#url').placeholder = n ? (isMob() ? 'Altri link…' : 'Aggiungi altri link…') : (isMob() ? 'Incolla i link' : 'Incolla uno o più link');
+  state.links.forEach(u => { if (!INFO.has(u)) probe(u).then(d => { INFO.set(u, d); const el = [...document.querySelectorAll('#bulkL [data-u]')].find(x => x.dataset.u === u); if (el) el.outerHTML = linkHTML(u); }).catch(() => {}); });
+  swapText($('#dlLbl'), btnLabel());
+  $('#url').placeholder = n ? (isMob() ? 'Altri link o ricerca…' : 'Aggiungi altri link o cerca su YouTube…') : (isMob() ? 'Link o ricerca YouTube' : 'Incolla un link o cerca su YouTube');
 }
 const setBulk = o => { bulkOpen = o; renderBulk(); };
 $('#url').addEventListener('paste', e => {
@@ -194,7 +200,7 @@ $('#url').addEventListener('input', e => {
   const urls = extract(e.target.value);
   if (urls.length > 1) { addLinks(urls); e.target.value = ''; setBulk(true); }
 });
-$('#url').addEventListener('focus', () => setBulk(true));
+$('#url').addEventListener('focus', () => { setBulk(true); if ($('#url').value.trim()) onLookInput(true); });
 const canPaste = !!(navigator.clipboard && navigator.clipboard.readText && isSecureContext);
 function syncPaste() { $('#pasteBtn').hidden = !(canPaste && isMob() && !$('#url').value); }
 $('#url').addEventListener('input', syncPaste);
@@ -206,7 +212,11 @@ $('#pasteBtn').onclick = async () => {
 };
 $('#url').addEventListener('keydown', e => {
   if (e.key === 'Backspace' && !e.target.value && state.links.length) removeLink(state.links.length - 1);
-  if (e.key === 'Escape') { setBulk(false); e.target.blur(); }
+  if (look.mode === 'search' && look.data && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    e.preventDefault(); const n = look.data.length; if (!n) return;
+    look.sel = e.key === 'ArrowDown' ? (look.sel + 1) % n : (look.sel <= 0 ? n - 1 : look.sel - 1); markSel(); return;
+  }
+  if (e.key === 'Escape') { if (look.mode) { setLook(null); return; } setBulk(false); e.target.blur(); }
 });
 function removeLink(i) {
   const li = $('#bulkL').children[i];
@@ -215,23 +225,118 @@ function removeLink(i) {
   li.classList.add('out'); setTimeout(done, 180);
 }
 document.addEventListener('pointerdown', e => {
-  if (!e.target.closest('#hc')) setBulk(false);
+  if (!e.target.closest('#hc')) { setBulk(false); if (look.mode) setLook(null); }
   if (!e.target.closest('.menu-w')) $('#speedMenu').classList.remove('open');
 });
 $('#bulkL').addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (b) { removeLink(+b.dataset.i); $('#url').focus(); } });
 $('#bulkClear').onclick = () => { state.links = []; renderBulk(); $('#url').focus(); };
 $('#dlForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const urls = [...state.links, ...extract($('#url').value)];
-  if (!urls.length) { if ($('#url').value.trim()) toast('Link non valido', 'Il link deve iniziare con http:// o https://', 'err'); return $('#url').focus(); }
+  const v = $('#url').value.trim();
+  // ricerca per nome: Invio cerca subito; con un risultato scelto (frecce) lo scarica
+  if (isQuery(v)) {
+    const r = look.mode === 'search' && look.q === v && look.data && look.data[look.sel];
+    if (r) return download([...state.links, r.url]);
+    if (look.mode === 'search' && look.q === v && look.data && look.data.length) { look.sel = 0; return markSel(); }
+    clearTimeout(lookT); return runSearch(v);
+  }
+  const urls = [...state.links, ...extract(v)];
+  if (!urls.length) { if (v) toast('Link non valido', 'Il link deve iniziare con http:// o https://', 'err'); return $('#url').focus(); }
+  download(urls);
+});
+async function download(urls) {
   try {
     await post('api/download', { urls, quality: $('#quality').value });
-    state.links = []; $('#url').value = ''; setBulk(false); $('#url').blur();
+    state.links = []; $('#url').value = ''; setLook(null); setBulk(false); $('#url').blur(); syncPaste();
     if (isMob()) toast(urls.length > 1 ? `${urls.length} download avviati` : 'Download avviato', 'Tocca l\'indicatore in alto per seguirli');
     else if (!sideOpen('l')) setSide('l', true);
     pollJobs();
   } catch (err) { toast('Impossibile scaricare', err.message, 'err'); }
+}
+
+/* ---------- anteprima del link incollato e ricerca su YouTube per nome ---------- */
+const isQuery = v => v.trim().length >= 2 && !/^https?:\/\//i.test(v.trim()) && !extract(v).length;
+const views = n => n == null ? '' : n >= 1e6 ? `${num(n / 1e6, n < 1e7 ? 1 : 0)} Mln di visualizzazioni` : n >= 1e3 ? `${Math.round(n / 1e3)} mila visualizzazioni` : `${n} visualizzazioni`;
+const meta = d => [d.channel, views(d.views)].filter(Boolean).map(esc).join(' · ');
+const thumbHTML = (d, cls = '') => `<span class="lk-th ${cls}">${d && d.thumb ? `<img src="${esc(d.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}${d && d.live ? '<em class="live">LIVE</em>' : d && d.duration ? `<em>${fmt(d.duration)}</em>` : ''}</span>`;
+function linkHTML(u, s = shortUrl(u)) {
+  const d = INFO.get(u);
+  return d && d.title ? `<span class="u t" data-u="${esc(u)}">${thumbHTML(d, 'xs')}<b>${esc(d.title)}</b><span>${esc(d.channel || s.host)}${d.duration ? ' · ' + fmt(d.duration) : ''}</span></span>`
+    : `<span class="u" data-u="${esc(u)}"><b>${esc(s.host)}</b>${esc(s.rest)}</span>`;
+}
+const SEARCH_IC = '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/>', LINK_IC = $('#dlForm > svg').innerHTML;
+function btnLabel() {
+  const n = state.links.length;
+  if (look.mode === 'search' && look.sel < 0) return 'Cerca';
+  return n > 1 ? `Scarica ${n}` : 'Scarica';
+}
+function setLook(mode) {
+  if (!mode) { look = { mode: null, q: '', data: null, sel: -1 }; lookSeq++; }
+  else look.mode = mode;
+  $('#hc').classList.toggle('look-on', !!mode); $('#url').setAttribute('aria-expanded', !!mode);
+  renderBulk();
+}
+function onLookInput(now) {
+  clearTimeout(lookT);
+  const v = $('#url').value.trim(), urls = extract(v), q = isQuery(v);
+  $('#dlForm > svg').innerHTML = q ? SEARCH_IC : LINK_IC;
+  if (urls.length === 1 && v === urls[0]) { if (look.mode === 'probe' && look.q === v) return; lookT = setTimeout(() => showProbe(v), now ? 0 : 200); }
+  else if (q) { if (look.mode === 'search' && look.q === v) return; if (look.mode !== 'search') { look.sel = -1; swapText($('#dlLbl'), 'Cerca'); } lookT = setTimeout(() => runSearch(v), now ? 0 : 500); }
+  else if (look.mode) setLook(null);
+}
+$('#url').addEventListener('input', () => onLookInput());
+async function showProbe(url) {
+  const seq = ++lookSeq; look = { mode: 'probe', q: url, data: null, sel: -1 };
+  renderLook({ loading: true }); setLook('probe');
+  try { const d = await probe(url); INFO.set(url, d); if (seq === lookSeq) renderLook({ d }); }
+  catch (e) { if (seq === lookSeq) renderLook({ err: e.message }); }
+}
+async function runSearch(q) {
+  const seq = ++lookSeq; look = { mode: 'search', q, data: look.mode === 'search' ? look.data : null, sel: -1 };
+  if (!look.data) renderLook({ loading: true }); else $('#look').classList.add('busy');
+  setLook('search');
+  try {
+    if (!SEARCHES.has(q)) { const p = api('api/search?q=' + encodeURIComponent(q)); SEARCHES.set(q, p); p.catch(() => SEARCHES.delete(q)); }
+    const r = await SEARCHES.get(q); if (seq !== lookSeq) return;
+    r.results.forEach(x => { INFO.set(x.url, x); if (!PROBES.has(x.url)) PROBES.set(x.url, Promise.resolve(x)); });
+    look.data = r.results; renderLook({});
+  } catch (e) { if (seq === lookSeq) { look.data = null; renderLook({ err: e.message }); } }
+}
+function renderLook({ loading, d, err }) {
+  const el = $('#look'); el.classList.remove('busy');
+  const qual = $('#quality').selectedOptions[0].textContent;
+  if (look.mode === 'probe' || (!look.mode && (d || loading))) {
+    el.innerHTML = loading
+      ? `<div class="lk-pv sk"><span class="lk-th"></span><span class="lk-tx"><i></i><i></i><i></i></span></div>`
+      : d ? `<div class="lk-pv in">${thumbHTML(d)}<span class="lk-tx"><b>${esc(d.title || shortUrl(look.q).host)}</b><span>${meta(d)}</span>
+          <span class="lk-k">${d.playlist ? 'Playlist · verrà scaricato il primo video' : `Invio per scaricare · ${esc(qual)}`}</span></span></div>`
+      : `<div class="lk-pv in"><span class="lk-th none">${ICON.x}</span><span class="lk-tx"><b>Anteprima non disponibile</b><span>${esc((err || '').slice(0, 140))}</span>
+          <span class="lk-k">Puoi comunque provare a scaricarlo</span></span></div>`;
+    return;
+  }
+  const head = `<div class="bulk-h"><span>Risultati su YouTube</span><span class="lk-hint">↑ ↓ per scegliere · Invio per scaricare</span></div>`;
+  if (loading) { el.innerHTML = head + '<ul class="lk-l">' + Array.from({ length: 4 }, () => '<li class="sk"><span class="lk-th sm"></span><span class="lk-tx"><i></i><i></i></span></li>').join('') + '</ul>'; return; }
+  if (err) { el.innerHTML = head + `<div class="lk-empty">Ricerca non riuscita: ${esc(err.slice(0, 160))}</div>`; return; }
+  if (!look.data.length) { el.innerHTML = head + `<div class="lk-empty">Nessun risultato per “${esc(look.q)}”</div>`; return; }
+  el.innerHTML = head + '<ul class="lk-l" role="listbox">' + look.data.map((r, i) => `<li class="in" role="option" data-k="${i}" style="--i:${i}">${thumbHTML(r, 'sm')}
+    <span class="lk-tx"><b>${esc(r.title)}</b><span>${meta(r)}</span></span>
+    <button type="button" class="ib ${state.links.includes(r.url) ? 'on' : ''}" data-add="${i}" title="Aggiungi alla lista">${state.links.includes(r.url) ? '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'}</button>
+    <button type="button" class="ib" data-dl="${i}" title="Scarica in ${esc(qual)}"><svg viewBox="0 0 24 24"><path d="M12 4v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg></button></li>`).join('') + '</ul>';
+  markSel();
+}
+function markSel() {
+  document.querySelectorAll('#look [data-k]').forEach(li => { const on = +li.dataset.k === look.sel; li.classList.toggle('cur', on); li.setAttribute('aria-selected', on); if (on) li.scrollIntoView({ block: 'nearest' }); });
+  swapText($('#dlLbl'), btnLabel());
+}
+$('#look').addEventListener('click', e => {
+  const add = e.target.closest('[data-add]');
+  if (add) { const r = look.data[+add.dataset.add]; if (!state.links.includes(r.url)) addLinks([r.url]); bump($('#count')); renderLook({}); return $('#url').focus(); }
+  const li = e.target.closest('[data-k]');
+  if (li) return download([...state.links, look.data[+li.dataset.k].url]);
+  if (e.target.closest('.lk-pv') && look.mode === 'probe' && INFO.has(look.q)) $('#dlForm').requestSubmit();
 });
+$('#look').addEventListener('pointermove', e => { const li = e.target.closest('[data-k]'); if (li && +li.dataset.k !== look.sel) { look.sel = +li.dataset.k; markSel(); } });
+$('#quality').addEventListener('change', () => { if (look.mode === 'probe' && INFO.has(look.q)) renderLook({ d: INFO.get(look.q) }); });
 $('#quality').value = localStorage.quality || '720';
 $('#quality').onchange = e => { localStorage.quality = e.target.value; };
 
@@ -749,7 +854,7 @@ addEventListener('keydown', e => {
 /* ---------- tutorial guidato (discreto, saltabile, una volta sola) ---------- */
 const TOURS = {
   intro: [
-    { el: ['#dlForm'], t: 'Incolla un link', d: 'Metti qui il link della lezione, anche più di uno, e premi Scarica.' },
+    { el: ['#dlForm'], t: 'Incolla un link o cerca', d: 'Metti qui il link della lezione (anche più di uno) e vedi subito l’anteprima, oppure scrivi il titolo per cercarla su YouTube.' },
     { el: ['#importBtn'], t: 'Hai già il file?', d: 'Caricalo da qui oppure trascinalo nella finestra.' },
     { el: ['#left .side-in', '#tglL'], t: 'La tua libreria', d: 'I video finiscono qui. Passa sopra a uno per l’anteprima, archiviarlo o eliminarlo.' },
     { el: ['#right .side-in', '#tglR'], t: 'I controlli', d: 'Velocità, salto delle pause ed esportazione in MP4.' },

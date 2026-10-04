@@ -226,6 +226,7 @@ I log e il terminale dei container sono anche nell'interfaccia di Dokploy (sched
 
 ## Problemi
 
+- **Anteprima o ricerca YouTube in StudyCut non funzionano:** usano yt-dlp come i download (`api/probe`, `api/search`), quindi di solito basta aggiornarlo (vedi *yt-dlp sempre aggiornato*). La lingua dei titoli si cambia con `STUDYCUT_LANG` (predefinita `it`).
 - **Torno sempre alla pagina di accesso:** il cookie di sessione è `Secure` quando il sito è in HTTPS. Apri il sito con `https://` e controlla che Traefik passi `X-Forwarded-Proto` (Dokploy lo fa già).
 - **"Spazio esaurito":** l'utente ha raggiunto `USER_QUOTA_GB`. Può cancellare video o esportazioni, oppure puoi alzargli il limite con `server.py quota`.
 
