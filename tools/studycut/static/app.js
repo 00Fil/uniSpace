@@ -347,7 +347,7 @@ async function pollJobs() {
   for (const j of state.jobs) {
     if (j.status === 'running' || j.status === 'queued' || state.seen.has(j.id)) continue;
     state.seen.add(j.id);
-    if (j.status === 'error' && j.kind === 'prepare' && state.cur && state.cur.id === j.video) renderAnalysis();
+    if (j.status === 'error' && j.kind === 'prepare' && state.cur && state.cur.id === j.video) await open(j.video);
     if (j.status === 'error') { toast(`${KIND[j.kind]} non riuscito`, `${j.title || j.url || ''}\n${j.message}`, 'err'); continue; }
     const r = j.result || {};
     if (j.kind === 'download' || j.kind === 'upload') { await loadLib(); if (!state.cur) await open(r.video); }
@@ -404,7 +404,7 @@ function renderJobs() {
   progBtn($('#analyzeBtn'), an, state.cur && state.cur.analysis ? 'Analizza di nuovo' : 'Analizza');
   const pr = state.jobs.find(j => j.kind === 'prepare' && j.video === cur && !j.ended);
   if (an) $('#skipSub').textContent = `Analisi in corso · ${Math.round(an.progress * 100)}%`;
-  else if (pr && state.cur && state.cur.analysis) $('#skipSub').textContent = pr.status === 'queued' ? 'Versione senza pause in coda…' : `Preparo la versione senza pause · ${Math.round(pr.progress * 100)}%`;
+  else if (pr && state.cur && state.cur.analysis) $('#skipSub').textContent = pr.status === 'queued' ? 'Versione senza pause in coda…' : `Senza pause, in streaming · ${Math.round(pr.progress * 100)}% pronto`;
 }
 function progBtn(btn, job, idle) {
   const lbl = btn.querySelector('.lbl'), fill = btn.querySelector('.fill'), was = btn.classList.contains('busy');
@@ -627,7 +627,79 @@ addEventListener('drop', e => { e.preventDefault(); dragN = 0; $('#drop').classL
    fila, senza salti e quindi senza buffering. La timeline resta nei tempi del video originale grazie
    alla mappa [inizio_originale, inizio_tagliato, durata] di ogni tratto. Finche' non e' pronto, i
    silenzi vengono saltati durante la riproduzione come ripiego. */
-const cutOk = m => !!(m && m.cut && m.cut.map && m.analysis && m.cut.key === m.analysis.key);
+const MSE = window.ManagedMediaSource || window.MediaSource;
+const NATIVE_HLS = !!document.createElement('video').canPlayType('application/vnd.apple.mpegurl');
+const cutOk = m => !!(m && m.cut && m.cut.map && m.analysis && m.cut.key === m.analysis.key && (!m.cut.hls || MSE || NATIVE_HLS));
+
+/* Streaming della versione senza pause, come su YouTube: il server la crea a pezzi da 2 s (HLS fMP4)
+   e il player la scarica a pezzi mentre la guardi, anche quando non e' ancora finita. Tiene ~30 s
+   avanti, libera la memoria dietro e salta direttamente al pezzo giusto quando cerchi. */
+class CutStream {
+  constructor(v, base, dur, audio) {
+    Object.assign(this, { v, base, dur, audio, segs: [], ended: false, have: new Set(), busy: false, dead: false });
+    this.ms = new MSE(); if (MSE === window.ManagedMediaSource) v.disableRemotePlayback = true;
+    this.url = URL.createObjectURL(this.ms);
+    this.ms.addEventListener('sourceopen', () => this.open().catch(e => this.dead || console.warn('stream', e)), { once: true });
+    this.tick = this.tick.bind(this); this.evs = ['seeking', 'timeupdate', 'ratechange', 'waiting'];
+    this.evs.forEach(e => v.addEventListener(e, this.tick));
+  }
+  destroy() { this.dead = true; this.evs.forEach(e => this.v.removeEventListener(e, this.tick)); URL.revokeObjectURL(this.url); }
+  async get(name, text) { // aspetta che il pezzo esista (il server lo sta ancora creando)
+    for (let i = 0; !this.dead; i++) {
+      const r = await fetch(this.base + name, { cache: name.endsWith('.m3u8') ? 'no-store' : 'default' }).catch(() => null);
+      if (r && r.ok) return text ? r.text() : r.arrayBuffer();
+      if (r && r.status === 401) { relogin(); break; }
+      await sleep(Math.min(1500, 250 + i * 100));
+    }
+    throw new Error('chiuso');
+  }
+  async list() {
+    const txt = await this.get('index.m3u8', true), segs = []; let t = 0, d = null;
+    for (const l of txt.split('\n').map(x => x.trim())) {
+      if (l.startsWith('#EXTINF:')) d = parseFloat(l.slice(8));
+      else if (l && !l.startsWith('#') && d !== null) { segs.push({ name: l, s: t, e: t + d }); t += d; d = null; }
+    }
+    this.segs = segs; this.ended = txt.includes('#EXT-X-ENDLIST'); this.onlist && this.onlist(t, this.ended);
+  }
+  async open() {
+    try { this.ms.duration = this.dur; } catch {}
+    this.sb = this.ms.addSourceBuffer(this.audio ? 'audio/mp4; codecs="mp4a.40.2"' : 'video/mp4; codecs="avc1.640028, mp4a.40.2"');
+    await this.list(); await this.append(await this.get('init.mp4'));
+    this.tick();
+    while (!this.ended && !this.dead) { await sleep(1000); await this.list(); this.tick(); }
+  }
+  wait() { return new Promise((ok, ko) => { const sb = this.sb; const f = () => { sb.removeEventListener('updateend', f); sb.removeEventListener('error', g); ok(); };
+    const g = () => { sb.removeEventListener('updateend', f); sb.removeEventListener('error', g); ko(new Error('append')); };
+    sb.addEventListener('updateend', f); sb.addEventListener('error', g); }); }
+  async append(buf) {
+    for (let k = 0; k < 2; k++) {
+      try { const p = this.wait(); this.sb.appendBuffer(buf); return await p; }
+      catch (e) { if (e.name !== 'QuotaExceededError' || k) throw e; await this.evict(5); }
+    }
+  }
+  async evict(back) { // libera i pezzi gia' visti
+    const t = this.v.currentTime - back; if (t <= 0 || !this.sb.buffered.length || this.sb.buffered.start(0) >= t) return;
+    const p = this.wait(); this.sb.remove(0, t); await p;
+    this.segs.forEach((g, i) => { if (g.e <= t) this.have.delete(i); });
+  }
+  async tick() {
+    if (this.busy || this.dead || !this.sb) return; this.busy = true;
+    try {
+      while (!this.dead) {
+        const t = this.v.currentTime, ahead = t + 20 + 10 * (this.v.playbackRate || 1);
+        if (this.sb.buffered.length && this.sb.buffered.start(0) < t - 60) await this.evict(30);
+        let i = this.segs.findIndex(g => g.e > t + .05); if (i < 0) break;
+        while (i < this.segs.length && this.have.has(i) && this.segs[i].s < ahead) i++;
+        if (i >= this.segs.length || this.segs[i].s >= ahead) break;
+        const buf = await this.get(this.segs[i].name); if (this.dead) break;
+        await this.append(buf); this.have.add(i);
+      }
+      const last = this.segs.length - 1;
+      if (this.ended && last >= 0 && this.have.has(last) && this.ms.readyState === 'open' && !this.sb.updating) this.ms.endOfStream();
+    } catch (e) { if (!this.dead) console.warn('stream', e); }
+    finally { this.busy = false; }
+  }
+}
 const inCut = () => state.src === 'cut' && cutOk(state.cur);
 function segAt(mp, t, k) { // ultimo tratto con mp[i][k] <= t
   let lo = 0, hi = mp.length - 1, r = 0;
@@ -642,20 +714,67 @@ function toCut(to) {
   if (to <= s[0] + s[2]) return s[1] + (to - s[0]);
   return i + 1 < mp.length ? mp[i + 1][1] : s[1] + s[2]; // dentro una pausa: riparte dal tratto dopo
 }
-const curT = () => state.cur ? (inCut() ? toOrig(video.currentTime) : video.currentTime) : 0;
+// state.pend: posizione da raggiungere mentre la nuova sorgente si carica
+const curT = () => !state.cur ? 0 : state.pend != null ? state.pend : inCut() ? toOrig(video.currentTime) : video.currentTime;
 const durT = () => state.cur ? (inCut() ? state.cur.duration : (video.duration || state.cur.duration)) : 0;
-const seekTo = t => { if (state.cur) video.currentTime = inCut() ? toCut(t) : t; };
+let seekPend = null;
+const seekTo = (t, drag) => {
+  if (!state.cur) return;
+  if (wantSrc(t, state.src) !== state.src) { // es. salto oltre la parte gia' pronta: cambia sorgente
+    if (drag) { seekPend = t; return; }     // mentre trascini, solo al rilascio
+    seekPend = null; return syncSrc(t);
+  }
+  seekPend = null;
+  video.currentTime = inCut() ? toCut(t) : t;
+};
+// quanto della versione senza pause e' gia' pronto (aggiornato dalla playlist)
+state.rendered = { key: null, end: 0, ended: false };
+function wantSrc(t, from) {
+  const m = state.cur; if (!(state.skip && cutOk(m))) return 'orig';
+  const c = m.cut, r = state.rendered;
+  if (c.ready || !c.hls || (r.key === c.key && r.ended)) return 'cut';
+  const ct = toCut(t);
+  if (r.key !== c.key) return ct < 3 ? 'cut' : 'orig';   // appena partita: l'inizio arriva subito
+  return ct < r.end - (from === 'cut' ? 0.5 : 8) ? 'cut' : 'orig'; // margine per non rimbalzare
+}
+async function readRendered(c) {
+  try {
+    const r = await fetch(`media/${state.cur.id}/${c.dir}/index.m3u8`, { cache: 'no-store' }); if (!r.ok) return;
+    const txt = await r.text(); let end = 0;
+    for (const l of txt.split('\n')) if (l.startsWith('#EXTINF:')) end += parseFloat(l.slice(8));
+    state.rendered = { key: c.key, end, ended: txt.includes('#EXT-X-ENDLIST') };
+  } catch {}
+}
+// mentre si crea: se il player e' sull'originale (salto oltre la parte pronta) torna allo streaming
+// appena possibile; se lo streaming resta senza pezzi pronti, passa all'originale
+setInterval(async () => {
+  const m = state.cur; if (!m || !state.skip || !cutOk(m) || !m.cut.hls || m.cut.ready) return;
+  if (state.src === 'orig') { await readRendered(m.cut); if (state.cur === m) syncSrc(); }
+  else if (state.src === 'cut') {
+    if (!state.stream) await readRendered(m.cut); // HLS nativo (iPhone)
+    if (state.cur === m && !video.paused && video.readyState < 3 && wantSrc(curT(), 'cut') === 'orig') syncSrc();
+  }
+}, 1500);
 function syncSrc(t, play) {
   const m = state.cur; if (!m) return;
-  const want = state.skip && cutOk(m) ? 'cut' : 'orig';
-  if (want === state.src) return;
   if (t === undefined) t = curT();
+  const want = wantSrc(t, state.src);
+  if (want === state.src) return;
   if (play === undefined) play = !video.paused;
   state.src = want;
-  const file = want === 'cut' ? m.cut.file : m.file;
-  video.src = `media/${m.id}/${file}`; video.playbackRate = state.speed;
+  if (state.stream) { state.stream.destroy(); state.stream = null; }
+  if (want === 'cut' && m.cut.hls) {
+    const base = `media/${m.id}/${m.cut.dir}/`;
+    if (MSE) {
+      state.stream = new CutStream(video, base, m.cut.duration, m.audio); video.src = state.stream.url;
+      state.stream.onlist = (end, ended) => { state.rendered = { key: m.cut.key, end, ended }; };
+    }
+    else video.src = base + 'index.m3u8'; // iPhone: HLS nativo
+  } else video.src = `media/${m.id}/${want === 'cut' ? m.cut.file : m.file}`;
+  video.playbackRate = state.speed;
   const pos = want === 'cut' ? toCut(t) : t;
-  if (pos > 0.05) video.addEventListener('loadedmetadata', () => { video.currentTime = pos; }, { once: true });
+  state.pend = t; const src = video.src;
+  video.addEventListener('loadedmetadata', () => { if (video.src !== src) return; if (pos > 0.05) video.currentTime = pos; state.pend = null; }, { once: true });
   if (play) video.play().catch(() => {});
   tlKey = '';
 }
@@ -819,7 +938,7 @@ function seekHover(e) {
   tip.style.left = `${clamp(hoverX, half, r.width - half)}px`;
   $('#tipT').innerHTML = `${fmt(t)}${findSkip(t) ? '<em>pausa</em>' : ''}`;
   seek.classList.add('hov');
-  if (dragging) seekTo(t); else preview(t);
+  if (dragging) seekTo(t, true); else preview(t);
 }
 let wasPlaying = false;
 seek.addEventListener('pointerdown', e => {
@@ -831,6 +950,7 @@ seek.addEventListener('pointerdown', e => {
 seek.addEventListener('pointermove', e => { if (dragging || e.pointerType === 'mouse') seekHover(e); });
 const seekEnd = e => {
   if (!dragging) return; dragging = false;
+  if (seekPend !== null) seekTo(seekPend);
   if (wasPlaying && video.paused) video.play().catch(() => {});
   if (e.pointerType !== 'mouse') { hoverX = -1; seek.classList.remove('hov'); }
 };
@@ -876,7 +996,8 @@ $('#delBtn').onclick = async () => {
 };
 async function closeViewer() {
   if (!state.cur) return;
-  state.cur = null; state.src = null; video.pause();
+  state.cur = null; state.src = null; state.pend = null; video.pause();
+  if (state.stream) { state.stream.destroy(); state.stream = null; }
   if (!reduce) await $('#viewer').animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.98)', filter: 'blur(6px)' }], { duration: 260, easing: 'ease-in', fill: 'forwards' }).finished;
   $('#viewer').getAnimations().forEach(a => a.cancel());
   video.removeAttribute('src'); video.load(); pv.removeAttribute('src');
