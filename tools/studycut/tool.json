@@ -1,0 +1,20 @@
+{
+  "id": "studycut",
+  "name": "StudyCut",
+  "type": "service",
+  "upstream": "studycut:8765",
+  "auth": true,
+  "maxUpload": "4GB",
+  "category": "video",
+  "icon": "cut",
+  "order": 10,
+  "description": "Scarica la lezione da un link o caricala, salta le pause e guardala fino a 3×. Esporti l'MP4 già tagliato.",
+  "tags": ["YouTube", "MP4", "MKV", "fino a 3×"],
+  "keywords": "silenzi pause velocita lezione registrata youtube scaricare video accelerare tagliare",
+  "featured": {
+    "fx": "tunnel",
+    "preset": { "cableColor": "#3d6ff5", "pulseColor": "#a9c6ff", "tunnelColor": "#1a2f80", "tunnelOpacity": 0.15, "speed": 0.14, "cableCount": 26, "pulseSpeed": 2.2, "glow": 0.9, "brightness": 0.95, "fadeNear": 0.35, "fadeFar": 2.2, "grainIntensity": 0.03, "mouseStrength": 0.12 },
+    "specs": [["Fonti", "Link YouTube, MP4, MKV, audio"], ["Velocità", "da 0,5× a 3×"], ["Esempio", "Lezione di 1 h 32 min → 58 min"]],
+    "preview": "<div class=\"pv-h\"><span>Analisi 2 · Lezione 14</span><span>32 pause trovate</span></div><div class=\"pv-tl\"><i style=\"flex:14\"></i><i class=\"s\" style=\"flex:3\"></i><i style=\"flex:9\"></i><i class=\"s\" style=\"flex:2\"></i><i style=\"flex:16\"></i><i class=\"s\" style=\"flex:4\"></i><i style=\"flex:7\"></i><i class=\"s\" style=\"flex:3\"></i><i style=\"flex:12\"></i><i class=\"s\" style=\"flex:2\"></i><i style=\"flex:10\"></i><i class=\"s\" style=\"flex:5\"></i><i style=\"flex:8\"></i></div><div class=\"pv-big\"><s>1:32:10</s><b>58:40</b><em>−36%</em></div>"
+  }
+}

@@ -1,0 +1,2 @@
+# nel container ffmpeg arriva da apt, quindi niente imageio-ffmpeg
+yt-dlp[default]

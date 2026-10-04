@@ -1,0 +1,8 @@
+[
+  { "id": "video", "name": "Video e audio",        "color": "var(--c-video)" },
+  { "id": "pdf",   "name": "PDF e documenti",      "color": "var(--c-pdf)" },
+  { "id": "memo",  "name": "Memoria e ripasso",    "color": "var(--c-memo)" },
+  { "id": "calc",  "name": "Matematica e scienze", "color": "var(--c-calc)" },
+  { "id": "plan",  "name": "Organizzazione",       "color": "var(--c-plan)" },
+  { "id": "write", "name": "Scrittura e tesi",     "color": "var(--c-write)" }
+]

@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "type": "static",
+  "auth": false,
+  "category": "plan",
+  "icon": "box",
+  "order": 100,
+  "isNew": true,
+  "description": "Descrivi in una frase cosa fa il tool.",
+  "tags": ["offline"],
+  "keywords": "parole chiave per la ricerca"
+}

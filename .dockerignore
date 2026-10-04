@@ -1,0 +1,7 @@
+.git
+.env
+dist
+**/library
+**/secrets
+**/.venv
+**/__pycache__

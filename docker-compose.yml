@@ -1,0 +1,50 @@
+# StudyKit su Dokploy
+# - In Dokploy aggiungi il dominio SOLO al servizio "gateway" (porta 80).
+# - I tool non hanno porte pubbliche: li raggiunge il gateway sulla rete interna "hub".
+# - Per aggiungere un tool: README.md → "Aggiungere un tool".
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      HUB_USER: ${HUB_USER:-studente}
+      HUB_PASSWORD: ${HUB_PASSWORD:-}
+    expose:
+      - "80"
+    networks:
+      - hub
+
+  # ------------------------------------------------------------ tool
+  studycut:
+    build: ./tools/studycut
+    restart: unless-stopped
+    environment:
+      STUDYCUT_PARALLEL: ${STUDYCUT_PARALLEL:-3}
+      YTDLP_AUTO_UPDATE: ${YTDLP_AUTO_UPDATE:-1}
+    volumes:
+      - studycut-library:/app/library
+      - studycut-secrets:/app/secrets
+    expose:
+      - "8765"
+    networks:
+      - hub
+
+  # Nuovo tool con un suo server (type "service" nel tool.json):
+  # mio-tool:
+  #   build: ./tools/mio-tool
+  #   restart: unless-stopped
+  #   expose:
+  #     - "8000"
+  #   networks:
+  #     - hub
+  # I tool statici (type "static") NON vanno aggiunti qui.
+
+networks:
+  hub:
+
+volumes:
+  studycut-library:
+  studycut-secrets:

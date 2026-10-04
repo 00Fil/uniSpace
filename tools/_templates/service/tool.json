@@ -1,0 +1,14 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "type": "service",
+  "upstream": "__ID__:8000",
+  "auth": true,
+  "category": "plan",
+  "icon": "box",
+  "order": 100,
+  "isNew": true,
+  "description": "Descrivi in una frase cosa fa il tool.",
+  "tags": ["server"],
+  "keywords": "parole chiave per la ricerca"
+}

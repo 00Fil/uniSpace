@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>StudyCut</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%227%22 fill=%22%23222%22/%3E%3Cpath d=%22M9.5 7.5v9l7-4.5z%22 fill=%22white%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="bgfx" data-mode="shapes"><canvas class="fx-waves"></canvas><canvas class="fx-shapes"></canvas></div>
+<div class="app boot" id="app">
+  <div class="scrim" id="scrim"></div>
+  <header>
+    <div class="hl">
+      <button class="ib" id="tglL" title="Libreria (L)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
+      <span class="brand">StudyCut</span>
+      <button class="act-ind" id="actInd" title="Mostra attività"><span class="spin"></span><span id="actN"></span></button>
+    </div>
+    <div class="hc" id="hc">
+      <form class="bar" id="dlForm" autocomplete="off">
+        <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+        <span class="count" id="count"></span>
+        <input id="url" placeholder="Incolla uno o più link" spellcheck="false" autocapitalize="off" autocorrect="off" inputmode="url" enterkeyhint="go">
+        <button type="button" class="paste" id="pasteBtn" title="Incolla dagli appunti" aria-label="Incolla" hidden><svg viewBox="0 0 24 24"><rect x="7" y="4" width="10" height="4" rx="1.5"/><path d="M8 6H6.5A1.5 1.5 0 0 0 5 7.5v11A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-11A1.5 1.5 0 0 0 17.5 6H16"/></svg></button>
+        <select id="quality" class="sel" title="Formato">
+          <option value="1080">1080p</option><option value="720" selected>720p</option><option value="480">480p</option><option value="360">360p</option><option value="audio">Solo audio</option>
+        </select>
+        <button class="btn btn-p" type="submit" id="dlBtn"><span class="lbl" id="dlLbl">Scarica</span><svg class="dl-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg></button>
+      </form>
+      <div class="bulk pop" id="bulk">
+        <div class="bulk-h"><span id="bulkT"></span><button type="button" id="bulkClear">Svuota</button></div>
+        <ul id="bulkL"></ul>
+        <div class="bulk-f">Incolla altri link oppure premi Invio per scaricarli tutti insieme.</div>
+      </div>
+    </div>
+    <div class="hr">
+      <div class="status" id="status"></div>
+      <button class="ib" id="importBtn" title="Importa un file"><svg viewBox="0 0 24 24"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3M12 15V4m0 0L8 8m4-4 4 4"/></svg></button>
+      <button class="ib" id="tglR" title="Controlli (P)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg></button>
+    </div>
+    <input type="file" id="fileInput" accept="video/*,audio/*,.mkv" multiple hidden>
+  </header>
+
+  <div class="body">
+    <aside class="side" id="left"><div class="sheet-h"><i></i></div><div class="side-in">
+      <div class="acts-wrap" id="actSec"><div>
+        <div class="sec-h"><span>In corso</span><span id="actCount"></span></div>
+        <div class="acts" id="acts"></div>
+      </div></div>
+      <div class="sec-h"><span>Libreria</span><span id="libCount"></span></div>
+      <div class="lib" id="lib"></div>
+    </div></aside>
+
+    <main class="stage">
+      <div class="empty" id="empty"><div class="hint">Incolla uno o più link in alto, oppure trascina qui i file</div></div>
+
+      <div class="viewer" id="viewer" hidden>
+        <div class="pbox" id="pbox">
+          <div class="vwrap paused" id="vwrap">
+            <video id="video" preload="metadata" playsinline></video>
+            <div class="cover"><div></div></div>
+            <div class="bigplay"><svg viewBox="0 0 24 24"><path d="M8.5 5.6v12.8a1 1 0 0 0 1.5.86l10.4-6.4a1 1 0 0 0 0-1.72L10 4.74a1 1 0 0 0-1.5.86z"/></svg></div>
+            <div class="pulse" id="pulse"></div>
+            <div class="ripple l" id="ripL"><span><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17-5-5 5-5M18 17l-5-5 5-5"/></svg>10 s</span></div>
+            <div class="ripple r" id="ripR"><span><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 17 5-5-5-5M6 17l5-5-5-5"/></svg>10 s</span></div>
+            <div class="flash" id="flash"></div>
+          </div>
+          <div class="ctrl" id="ctrl">
+            <div class="seek" id="seek">
+              <canvas id="tl"></canvas>
+              <div class="tip" id="tip"><canvas id="prev" width="352" height="198"></canvas><span id="tipT"></span></div>
+            </div>
+            <div class="crow">
+              <button class="ib pp" id="playBtn" title="Play/pausa (Spazio)"><svg class="i-play" viewBox="0 0 24 24"><path d="M8.5 5.6v12.8a1 1 0 0 0 1.5.86l10.4-6.4a1 1 0 0 0 0-1.72L10 4.74a1 1 0 0 0-1.5.86z"/></svg><svg class="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.3"/><rect x="13.5" y="5" width="4" height="14" rx="1.3"/></svg></button>
+              <button class="ib" id="back" title="Indietro 10 s (←)"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5"/><text x="12" y="15.5" font-size="7" text-anchor="middle" fill="currentColor" stroke="none" font-weight="700">10</text></svg></button>
+              <button class="ib" id="fwd" title="Avanti 10 s (→)"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7L20 8.5"/><path d="M20 4v4.5h-4.5"/><text x="12" y="15.5" font-size="7" text-anchor="middle" fill="currentColor" stroke="none" font-weight="700">10</text></svg></button>
+              <div class="vol">
+                <button class="ib" id="muteBtn" title="Audio (M)"></button>
+                <input type="range" id="volR" min="0" max="1" step="0.02" value="1" aria-label="Volume">
+              </div>
+              <span class="time" id="tTime"></span>
+              <span class="grow"></span>
+              <button class="pill" id="qSkip" title="Salta i silenzi (S)"><span class="mini"></span><span class="txt">Salta silenzi</span></button>
+              <div class="menu-w">
+                <button class="pill" id="qSpeed" title="Velocità ([ e ])">1×</button>
+                <div class="menu pop" id="speedMenu"></div>
+              </div>
+              <button class="ib" id="pipBtn" title="Picture in picture"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><rect x="12" y="11" width="6.5" height="5" rx="1" fill="currentColor" stroke="none"/></svg></button>
+              <button class="ib" id="fsBtn" title="Schermo intero (F)"><svg viewBox="0 0 24 24"><path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="pbox" style="position:static">
+          <div class="vrow">
+            <div class="meta"><h2 id="vTitle"></h2><div class="s" id="vMeta"></div></div>
+            <a class="ib" id="origDl" title="Salva l'originale"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 20h14"/></svg></a>
+            <button class="ib" id="delBtn" title="Elimina"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="side" id="right"><div class="sheet-h" id="sheetH"><i></i></div><div class="side-in"><div class="panel" id="panel">
+      <div class="grp">
+        <div class="gt"><span>Velocità</span></div>
+        <div class="big" id="speedVal">1,00<small>×</small></div>
+        <div class="seg" id="chips"><span class="seg-ind" id="segInd"></span></div>
+        <input type="range" id="speed" min="0.5" max="3" step="0.05" value="1">
+      </div>
+      <div class="grp">
+        <div class="row tap" id="skipRow">
+          <div><div class="lbl">Salta i silenzi</div><div class="sub" id="skipSub">Tocca per cercare le pause</div></div>
+          <span class="switch" id="skipToggle" role="switch" aria-label="Salta i silenzi"></span>
+        </div>
+        <details>
+          <summary><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m9 5 7 7-7 7"/></svg>Sensibilità</summary>
+          <div class="adv-w"><div><div class="adv">
+            <div class="field"><label>Soglia del silenzio <output id="noiseO"></output></label><input type="range" id="noise" min="-55" max="-20" step="1" value="-35"></div>
+            <div class="field"><label>Pausa minima <output id="mindO"></output></label><input type="range" id="mind" min="0.2" max="2.5" step="0.1" value="0.6"></div>
+            <div class="field"><label>Margine sulle parole <output id="padO"></output></label><input type="range" id="pad" min="0" max="0.5" step="0.02" value="0.12"></div>
+            <button class="btn btn-s" id="analyzeBtn"><span class="fill"></span><span class="lbl">Analizza di nuovo</span></button>
+          </div></div></div>
+        </details>
+      </div>
+      <div class="grp">
+        <div class="gt"><span>Durata</span></div>
+        <div class="kv">
+          <div><span>Originale</span><b id="stOrig">–</b></div>
+          <div><span>Senza silenzi</span><b id="stNoSil">–</b></div>
+          <div><span>Con queste impostazioni</span><b id="stEff">–</b></div>
+          <div class="good"><span>Risparmi</span><b id="stSaved">–</b></div>
+        </div>
+      </div>
+      <div class="grp">
+        <div class="gt"><span id="exTitle">Esporta MP4</span></div>
+        <label class="check"><input type="checkbox" id="exRemove" checked><span class="box"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg></span>Rimuovi i silenzi</label>
+        <button class="btn btn-p" id="exportBtn" style="width:100%;margin-top:14px;height:34px"><span class="fill"></span><span class="lbl" id="exLabel">Crea a 1×</span></button>
+        <div class="exports" id="exports"></div>
+      </div>
+      <div class="grp kbd-grp">
+        <div class="gt"><span>Scorciatoie</span></div>
+        <div class="kbd">
+          <div><span>Play / pausa</span><span><kbd>Spazio</kbd></span></div>
+          <div><span>Indietro / avanti 10 s</span><span><kbd>←</kbd><kbd>→</kbd></span></div>
+          <div><span>Volume · muto</span><span><kbd>↑</kbd><kbd>↓</kbd><kbd>M</kbd></span></div>
+          <div><span>Velocità</span><span><kbd>[</kbd><kbd>]</kbd></span></div>
+          <div><span>Salta silenzi · schermo intero</span><span><kbd>S</kbd><kbd>F</kbd></span></div>
+          <div><span>Libreria · controlli</span><span><kbd>L</kbd><kbd>P</kbd></span></div>
+        </div>
+      </div>
+    </div></div></aside>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<div class="drop" id="drop"><div>Rilascia i file per importarli</div></div>
+<video id="pv" muted preload="auto" hidden></video>
+
+<script src="bgfx.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
