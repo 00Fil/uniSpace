@@ -194,4 +194,3 @@ I log e il terminale dei container sono anche nell'interfaccia di Dokploy (sched
 - **404 su `/<tool>/`:** controlla che la cartella non inizi con `_`, che `id` sia uguale al nome della cartella e che `enabled` non sia `false`. Poi rifai il deploy: le rotte vengono generate durante la build.
 - **502 su un tool con server:** il container non è partito oppure `upstream` non corrisponde al nome del servizio o alla porta. Controlla i log del tool.
 - **Nessuna password richiesta:** `HUB_PASSWORD` è vuota. Impostala e rifai il deploy.
-# uniSpace
