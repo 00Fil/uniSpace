@@ -350,7 +350,7 @@ function stopPreview() {
 const libEl = $('#lib');
 libEl.addEventListener('pointerover', e => {
   if (e.pointerType !== 'mouse') return; const it = e.target.closest('.item'); if (!it || it === pvItem) return;
-  clearTimeout(pvTimer); pvTimer = setTimeout(() => startPreview(it), pvItem ? 60 : 260);
+  clearTimeout(pvTimer); startPreview(it);
 });
 libEl.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') stopPreview(); });
 libEl.addEventListener('pointerout', e => { if (e.pointerType !== 'mouse') return; const it = e.target.closest('.item');
@@ -398,6 +398,7 @@ async function open(id) {
   const same = state.cur && state.cur.id === id, first = !state.cur;
   state.cur = m;
   $('#empty').hidden = true; $('#viewer').hidden = false; window.BGFX && BGFX.mode('waves');
+  maybeVideoTour();
   if (!same) {
     const src = `media/${m.id}/${m.file}`;
     video.src = src; video.playbackRate = state.speed;
@@ -725,6 +726,74 @@ addEventListener('keydown', e => {
   if (map[k]) { e.preventDefault(); map[k](); }
 });
 
+/* ---------- tutorial guidato (discreto, saltabile, una volta sola) ---------- */
+const TOURS = {
+  intro: [
+    { el: ['#dlForm'], t: 'Incolla un link', d: 'Metti qui il link della lezione, anche più di uno, e premi Scarica.' },
+    { el: ['#importBtn'], t: 'Hai già il file?', d: 'Caricalo da qui oppure trascinalo nella finestra.' },
+    { el: ['#left .side-in', '#tglL'], t: 'La tua libreria', d: 'I video finiscono qui. Passa sopra a uno per l’anteprima, archiviarlo o eliminarlo.' },
+    { el: ['#right .side-in', '#tglR'], t: 'I controlli', d: 'Velocità, salto delle pause ed esportazione in MP4.' },
+  ],
+  video: [
+    { el: ['#seek'], t: 'Le pause, in chiaro', d: 'Sulla barra vedi dove sono le pause. Passaci sopra per l’anteprima del fotogramma.' },
+    { el: ['#skipRow', '#tglR'], t: 'Salta i silenzi', d: 'Attivalo e le pause vengono saltate mentre guardi. Tasto S.' },
+    { el: ['#chips', '#tglR'], t: 'Più veloce', d: 'Fino a 3× con la voce naturale. Tasti [ e ].' },
+    { el: ['#exportBtn', '#tglR'], t: 'Portalo con te', d: 'Esporta un MP4 già tagliato e accelerato per telefono o tablet.' },
+  ],
+};
+const tour = { name: null, i: 0, raf: 0, queue: [] };
+const seen = n => localStorage['tour_' + n] === '1';
+function visibleEl(sels) {
+  for (const s of sels) { const el = $(s); if (!el) continue;
+    const r = el.getBoundingClientRect(), side = el.closest('#left,#right');
+    if (side && !sideOpen(side.id === 'left' ? 'l' : 'r')) continue;
+    if (r.width > 4 && r.height > 4 && r.bottom > 0 && r.top < innerHeight && el.offsetParent !== null) return el; }
+  return null;
+}
+function startTour(name) {
+  if (seen(name)) return;
+  if (tour.name) { if (tour.name !== name && !tour.queue.includes(name)) tour.queue.push(name); return; }
+  tour.name = name; tour.i = -1;
+  if (!$('#tourRing')) document.body.insertAdjacentHTML('beforeend', `<div class="tour-ring" id="tourRing"></div>
+    <div class="tour" id="tour" role="dialog" aria-live="polite"><div class="tour-t"></div><div class="tour-d"></div>
+    <div class="tour-f"><span class="tour-dots"></span><button class="tour-skip" id="tourSkip">Salta</button><button class="tour-next" id="tourNext">Avanti</button></div></div>`);
+  $('#tourSkip').onclick = () => endTour(); $('#tourNext').onclick = () => stepTour(1);
+  stepTour(1);
+}
+function stepTour(dir) {
+  const steps = TOURS[tour.name];
+  let i = tour.i + dir; while (i < steps.length && !visibleEl(steps[i].el)) i++;
+  if (i >= steps.length) return endTour();
+  tour.i = i; const st = steps[i], box = $('#tour');
+  box.classList.remove('show'); void box.offsetWidth;
+  box.querySelector('.tour-t').textContent = st.t; box.querySelector('.tour-d').textContent = st.d;
+  box.querySelector('.tour-dots').innerHTML = steps.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('');
+  const last = !steps.slice(i + 1).some(s => visibleEl(s.el));
+  $('#tourNext').textContent = last ? 'Fatto' : 'Avanti';
+  tour.el = visibleEl(st.el); placeTour(true); box.classList.add('show'); $('#tourRing').classList.add('show');
+  cancelAnimationFrame(tour.raf); const follow = () => { placeTour(); tour.raf = requestAnimationFrame(follow); }; tour.raf = requestAnimationFrame(follow);
+}
+function placeTour() {
+  const el = tour.el; if (!el || !tour.name) return;
+  const r = el.getBoundingClientRect(), ring = $('#tourRing'), box = $('#tour'), pad = 6, gap = 14;
+  Object.assign(ring.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' });
+  const bw = box.offsetWidth, bh = box.offsetHeight, W = innerWidth, H = innerHeight;
+  let x, y;
+  if (r.bottom + gap + bh < H - 8) { y = r.bottom + gap; x = r.left + r.width / 2 - bw / 2; }          // sotto
+  else if (r.top - gap - bh > 8) { y = r.top - gap - bh; x = r.left + r.width / 2 - bw / 2; }          // sopra
+  else if (r.right + gap + bw < W - 8) { x = r.right + gap; y = r.top + r.height / 2 - bh / 2; }       // a destra
+  else { x = r.left - gap - bw; y = r.top + r.height / 2 - bh / 2; }                                   // a sinistra
+  box.style.left = clamp(x, 8, W - bw - 8) + 'px'; box.style.top = clamp(y, 8, H - bh - 8) + 'px';
+}
+function endTour() {
+  if (!tour.name) return;
+  localStorage['tour_' + tour.name] = '1'; tour.name = null; cancelAnimationFrame(tour.raf);
+  $('#tour').classList.remove('show'); $('#tourRing').classList.remove('show');
+  const next = tour.queue.shift(); if (next) setTimeout(() => startTour(next), 500);
+}
+addEventListener('keydown', e => { if (tour.name && e.key === 'Escape') { e.stopPropagation(); endTour(); } }, true);
+const maybeVideoTour = () => { if (state.cur && !app.classList.contains('pre')) setTimeout(() => startTour('video'), 700); };
+
 /* ---------- boot ---------- */
 if (location.pathname === '/' || location.pathname === '/index.html') $('#homeBtn').hidden = true; // in locale non c'è la home
 
@@ -743,5 +812,6 @@ if (location.pathname === '/' || location.pathname === '/index.html') $('#homeBt
   await sleep(reduce ? 0 : 420);
   initSides();
   setTimeout(() => app.classList.remove('intro', 'intro-sides'), 1300);
+  setTimeout(() => { startTour('intro'); maybeVideoTour(); }, 1250);
   requestAnimationFrame(loop);
 })();

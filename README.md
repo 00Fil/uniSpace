@@ -151,15 +151,17 @@ Regole per i tool con server:
   "description": "…",
   "tags": ["TXT", "PDF"],       // compaiono nella card e diventano filtri di ricerca
   "keywords": "domande test simulazione esame",
-  "featured": {                 // facoltativo: slide nel carosello "In evidenza" (massimo 6)
-    "fx": "shapes",             // shapes | tunnel | topo | slats | waves
-    "preset": { "text": "QUIZ", "color": "#2a1f4a", "hoverColor": "#c784ff" },
-    "specs": [["Domande", "multipla e vero/falso"]],
-    "preview": "<div class=\"pv-h\">…</div>"   // facoltativo
+  "featured": {                 // facoltativo: copertina nel carosello "In evidenza" (massimo 6)
+    "headline": "Le lezioni, senza pause.",   // cosa fa, in poche parole: è il titolo grande
+    "sub": "Toglie i silenzi e la fa scorrere fino a 3×.",
+    "demo": "cut",              // animazione a destra, dall'oggetto DEMOS in home/home.js
+    "demoHtml": "<div class=\"dm\">…</div>",  // in alternativa: HTML personalizzato
+    "fx": "shapes",             // sfondo: shapes | tunnel | topo | slats | waves
+    "preset": { "text": "QUIZ", "color": "#2a1f4a", "hoverColor": "#c784ff" }
   }
 }
 ```
-I nomi delle icone disponibili sono nell'oggetto `I` in `home/home.js`.
+I nomi delle icone disponibili sono nell'oggetto `I` in `home/home.js`. Per una nuova animazione di copertina aggiungi una funzione a `DEMOS` nello stesso file e i relativi stili in fondo a `home/home.css` (la demo `cut` è un esempio completo).
 Se un `tool.json` contiene un errore, la build del gateway si ferma con un messaggio chiaro e il sito già online resta com'è.
 
 Per provare la generazione prima del push:

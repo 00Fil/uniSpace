@@ -201,22 +201,38 @@ addEventListener('pageshow', e => { if (e.persisted) { pal.hidden = true; docume
 
 /* ---------------------------------------------------------------- carosello */
 // in evidenza: i tool con "featured" nel tool.json (al massimo 6)
-const FEAT = TOOLS.filter(t => t.featured).slice(0, 6).map(t => ({ id: t.id, fx: 'shapes', specs: [], ...t.featured, prev: t.featured.preview }));
+/* demo animate per le copertine: "featured.demo" nel tool.json sceglie quale usare */
+const DEMOS = {
+  // una lezione: le pause si evidenziano, spariscono, il tempo scende e la velocità sale
+  cut: () => {
+    const segs = [[9, 0], [3, 1], [7, 0], [4, 1], [11, 0], [2, 1], [6, 0], [3, 1], [8, 0]];
+    let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+    const wave = segs.map(([w, sil]) => `<div class="seg${sil ? ' sil' : ''}" style="--w:${w}">${Array.from({ length: Math.round(w * 1.4) }, () =>
+      `<i style="--h:${sil ? 6 + rnd() * 6 : 22 + rnd() * 78}%"></i>`).join('')}</div>`).join('');
+    return `<div class="dm dm-cut">
+      <div class="dm-row"><span class="dm-lbl"><span class="a">Lezione originale</span><span class="b">Senza pause</span></span>
+        <span class="dm-x"><span class="a">1×</span><span class="b">2×</span></span></div>
+      <div class="dm-wave">${wave}</div>
+      <div class="dm-time"><span class="a">1:32:10</span><span class="b">29:20</span></div>
+    </div>`;
+  },
+};
+const FEAT = TOOLS.filter(t => t.featured).slice(0, 6).map(t => ({ id: t.id, fx: 'shapes', ...t.featured }));
 if (!FEAT.length) $('.feat').hidden = true;
 if (FEAT.length < 2) { $('.car-nav').hidden = true; $('#tabs').hidden = true; }
 $('#tabs').style.setProperty('--n', Math.max(FEAT.length, 1));
 const car = $('#car'), track = $('#track');
 track.innerHTML = FEAT.map((f, i) => { const t = TOOL[f.id], c = CAT[t.cat];
-  return `<article class="slide" data-i="${i}" style="--cc:${c.c}" aria-label="${esc(t.name)}">
+  const demo = f.demoHtml || (DEMOS[f.demo] ? DEMOS[f.demo]() : '');
+  return `<article class="slide${demo ? ' has-demo' : ''}" data-i="${i}" style="--cc:${c.c}" aria-label="${esc(t.name)}">
     <canvas></canvas>
     <div class="s-copy">
-      <div class="s-top">${icon(t)}<span class="s-cat">${esc(c.name)}</span></div>
-      <h3>${esc(t.name)}</h3>
-      <p>${esc(t.desc)}</p>
-      <div class="specs">${f.specs.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
-      <div class="s-act"><a class="btn btn-p" href="${t.url}"${ext(t)} data-tool="${t.id}">Apri ${esc(t.name)}${svg('arrow')}</a><span class="hint">${esc(t.tags.join(' · '))}</span></div>
+      <div class="s-top">${icon(t)}<span class="s-name">${esc(t.name)}</span></div>
+      <h3>${esc(f.headline || t.name)}</h3>
+      <p>${esc(f.sub || t.desc)}</p>
+      <div class="s-act"><a class="btn btn-p" href="${t.url}"${ext(t)} data-tool="${t.id}">Apri ${esc(t.name)}${svg('arrow')}</a></div>
     </div>
-    ${f.prev ? `<div class="s-prev">${f.prev}</div>` : ''}
+    ${demo ? `<div class="s-demo">${demo}</div>` : ''}
   </article>`; }).join('');
 $('#tabs').innerHTML = FEAT.map((f, i) => `<button class="tab" role="tab" data-i="${i}" aria-label="${esc(TOOL[f.id].name)}"><i></i><span class="tn">${tIcon(TOOL[f.id])}${esc(TOOL[f.id].name)}</span><small>${esc(CAT[TOOL[f.id].cat].name)}</small></button>`).join('');
 const slides = $$('.slide'), tabs = $$('.tab'), N = slides.length;
