@@ -246,28 +246,52 @@ const FILMS = {
   // StudyCut: video a schermo intero → si allontana → la traccia audio viene elaborata e accorciata
   //           → 92 min → 29 min → "Risparmiati 63 minuti" → logo
   cut: {
-    length: 18400,
+    length: 18600,
     from: 92 * 60 + 10, mid: 58 * 60 + 40, to: 29 * 60 + 20,
     segs: [[8, 0], [3.2, 1], [6, 0], [4.2, 1], [9, 0], [2.6, 1], [5, 0], [3.6, 1], [7, 0], [2.4, 1], [5.5, 0]],
+    speeds: ['1×', '1,25', '1,5', '2×', '2,5', '3×'],
     html(t, f) {
-      const m = s => Math.round(s / 60);
+      const m = s => Math.round(s / 60), ch = (d, cls = '') => `<svg viewBox="0 0 24 24" class="${cls}">${d}</svg>`;
       return `${logoHtml(t, f)}
-      <div class="sh-ed">
-        <div class="sh-vid">
-          <div class="sv-scene">
-            <div class="sv-board"><b>Analisi Matematica II</b><small>Lezione 14 · Integrali doppi</small>
-              <div class="sv-math"><i style="width:62%"></i><i style="width:44%"></i><i style="width:71%"></i><i style="width:38%"></i></div></div>
-            <svg class="sv-prof" viewBox="0 0 100 120"><circle cx="50" cy="34" r="19"/><path d="M12 120c2-34 18-52 38-52s36 18 38 52z"/></svg>
-            <div class="sv-cap">…quindi l’integrale si spezza in due parti</div>
+      <div class="sh-ed"><div class="sc-win">
+        <div class="sc-hd">
+          <div class="sc-brand">${icon(t)}<span>${esc(t.name)}</span></div>
+          <div class="sc-title"><b>Analisi Matematica II</b> · Lezione 14</div>
+          <div class="sc-hr"><span class="sc-chip sc-st">Originale</span></div>
+        </div>
+        <div class="sc-body">
+          <div class="sc-stage">
+            <div class="sc-vid"><div class="sc-scene">
+              <div class="sc-slide">
+                <span class="sc-kick">Integrali doppi</span>
+                <b>Formula di riduzione</b>
+                <div class="sc-f">∬<sub>D</sub> f(x, y) dx dy = ∫<sub>a</sub><sup>b</sup> ( ∫<sub>g₁(x)</sub><sup>g₂(x)</sup> f(x, y) dy ) dx</div>
+                <svg class="sc-plot" viewBox="0 0 220 130"><path class="ax" d="M14 116h196M14 116V8"/><path class="rg" d="M44 96c30-6 60-4 120-14v-52c-50 10-84 6-120 18z"/><path class="cv" d="M44 96c30-6 60-4 120-14M44 48c36-12 70-8 120-18"/><path class="ax" d="M44 116V96M164 116V82"/><text x="40" y="128">a</text><text x="160" y="128">b</text><text x="96" y="70">D</text></svg>
+              </div>
+              <div class="sc-cap">…quindi l’integrale si spezza in due parti</div>
+            </div></div>
+            <canvas class="sc-seek"></canvas>
+            <div class="sc-crow">
+              <span class="sc-ib">${ch('<path d="M8.5 5.6v12.8a1 1 0 0 0 1.5.86l10.4-6.4a1 1 0 0 0 0-1.72L10 4.74a1 1 0 0 0-1.5.86z"/>', 'fill')}</span>
+              <span class="sc-time"><b class="sc-cur">12:04</b> / <span class="sc-tot">${clock(this.from)}</span></span>
+              <span class="sc-grow"></span>
+              <span class="sc-pill sc-skip">${ch('<path d="m5 12.5 4.5 4.5L19 7.5"/>')}Salta silenzi</span>
+              <span class="sc-pill sc-px">1×</span>
+            </div>
           </div>
-          <div class="sv-bar"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg><span class="sv-cur">12:04</span><span class="sv-prog"><i></i></span><span class="sv-tot">${clock(this.from)}</span><span class="sv-x">1×</span></div>
-          <div class="sv-badge">${tIcon(t)}<span>Elaborazione</span><b>0%</b></div>
+          <div class="sc-panel">
+            <div class="sc-grp"><div class="sc-gt">Velocità</div><div class="sc-big"><span class="sc-sv">1,00</span><small>×</small></div>
+              <div class="sc-seg"><span class="sc-ind"></span>${this.speeds.map((s, i) => `<span class="${i ? '' : 'on'}">${s}</span>`).join('')}</div></div>
+            <div class="sc-grp"><div class="sc-row"><div><div class="sc-lbl">Salta i silenzi</div><div class="sc-sub">Tocca per cercare le pause</div></div><span class="sc-sw"></span></div></div>
+            <div class="sc-grp sc-kvg"><div class="sc-gt">Durata</div><div class="sc-kv">
+              <div><span>Originale</span><b>${clock(this.from)}</b></div>
+              <div><span>Senza pause</span><b class="sc-k1">—</b></div>
+              <div><span>Con velocità</span><b class="sc-k2">—</b></div>
+              <div class="good"><span>Risparmi</span><b class="sc-k3">—</b></div></div></div>
+            <div class="sc-grp"><span class="sc-btn"><i></i><span class="sc-bl">Crea a 1×</span></span></div>
+          </div>
         </div>
-        <div class="sh-trk">
-          <div class="st-row"><span class="st-l">Traccia audio</span><span class="st-r"><span class="st-n"></span><span class="st-t">${clock(this.from)}</span></span></div>
-          <canvas class="st-cv"></canvas>
-        </div>
-      </div>
+      </div></div>
       <svg class="sh-defs" aria-hidden="true"><filter id="shMorph"><feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 18 -5"/></filter></svg>
       <div class="sh-num">
         <div class="sh-cmp"><b class="sn-a">${m(this.from)}<small>min</small></b>
@@ -278,99 +302,105 @@ const FILMS = {
     },
     mount(root) {
       const F = this, q = s => root.querySelector(s), SEG = F.segs, U = SEG.reduce((a, s) => a + s[0], 0);
-      const ed = q('.sh-ed'), vid = q('.sh-vid'), scene = q('.sv-scene'), trk = q('.sh-trk'), cv = q('.st-cv'), ctx = cv.getContext('2d');
-      const vCur = q('.sv-cur'), vTot = q('.sv-tot'), vProg = q('.sv-prog i'), vX = q('.sv-x'), badge = q('.sv-badge'), bPct = q('.sv-badge b'), bTxt = q('.sv-badge span');
-      const stN = q('.st-n'), stT = q('.st-t'), stL = q('.st-l'), num = q('.sh-num'), cmp = q('.sh-cmp'), sv = q('.sh-sv');
-      const nA = q('.sn-a'), nArr = q('.sn-arr'), nB = q('.sn-b'), arrP = q('.sn-arr path');
+      const ed = q('.sh-ed'), win = q('.sc-win'), vid = q('.sc-vid'), scene = q('.sc-scene'), cv = q('.sc-seek'), ctx = cv.getContext('2d');
+      const cur = q('.sc-cur'), tot = q('.sc-tot'), px2 = q('.sc-px'), skip = q('.sc-skip'), st = q('.sc-st');
+      const sv = q('.sc-sv'), ind = q('.sc-ind'), segBtns = [...root.querySelectorAll('.sc-seg span:not(.sc-ind)')], sw = q('.sc-sw'), sub = q('.sc-sub');
+      const k1 = q('.sc-k1'), k2 = q('.sc-k2'), k3 = q('.sc-k3'), btn = q('.sc-btn'), bFill = q('.sc-btn i'), bLbl = q('.sc-bl');
+      const num = q('.sh-num'), cmp = q('.sh-cmp'), svd = q('.sh-sv'), nA = q('.sn-a'), nArr = q('.sn-arr'), nB = q('.sn-b'), arrP = q('.sn-arr path');
       // forma d'onda: parlato a sillabe, pause quasi piatte
       let seed = 5; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
       const PER = 22, amp = [], starts = []; let u = 0;
       SEG.forEach(([w, sil]) => { starts.push(u); const n = Math.round(w * PER); let k2 = 0, len = 0, pk = 0;
         for (let k = 0; k < n; k++) {
-          if (sil) { amp.push(.02 + rnd() * .025); continue; }
+          if (sil) { amp.push(.02 + rnd() * .02); continue; }
           if (k2 >= len) { k2 = 0; len = 5 + Math.floor(rnd() * 9); pk = .3 + rnd() * .7; }
           const env = Math.pow(Math.sin(Math.PI * (k2 + .5) / len), .7), edge = Math.min(1, (k + 1) / 4, (n - k) / 4);
           amp.push(Math.max(.035, pk * env * (.6 + rnd() * .4) * edge)); k2++;
         } u += w; });
       const ampAt = (i, f) => { const s0 = Math.round(starts[i] * PER), n = Math.round(SEG[i][0] * PER); return amp[s0 + Math.min(n - 1, Math.floor(f * n))]; };
       // tempi (ms)
-      const LOGO_END = 2000, V_IN = 1650, DZ0 = 2700, DZ1 = 4100, TR0 = 3500, SC0 = 4500, SC1 = 8100, CUT = 1000,
-        SP0 = 8500, SP1 = 9300, EX0 = 9800, EX1 = 10500, NB = 10300, MO0 = 12300, MO1 = 13200, SVOUT = 14500, END = 14700;
+      const LOGO_END = 2000, V_IN = 1650, DZ0 = 2800, DZ1 = 4300, TR0 = 3600, SC0 = 4800, SC1 = 8500, CUT = 1000,
+        SP0 = 8900, SP1 = 9700, EX0 = 10200, EX1 = 10900, NB = 10700, MO0 = 12700, MO1 = 13600, SVOUT = 14900, END = 15100;
       const cutAt = SEG.map((s, i) => s[1] ? SC0 + (SC1 - SC0) * (starts[i] + s[0]) / U + 80 : 0);
       const logo = logoScenes(root, LOGO_END, END);
-      // geometria: il video parte grande quanto la sezione e si allontana fino al suo posto
-      let geo = null, W = 0, H = 0, dpr = 1;
-      const measure = () => { vid.style.transform = 'none'; const r = vid.getBoundingClientRect(), R = root.getBoundingClientRect();
-        const s = R.height > R.width ? R.width / r.width : Math.max(R.width / r.width, R.height / r.height) * 1.02; // in verticale non ritaglia troppo
-        geo = { s, dx: R.left + R.width / 2 - (r.left + r.width / 2), dy: R.top + R.height / 2 - (r.top + r.height / 2) };
-        dpr = Math.min(2, devicePixelRatio || 1); W = cv.clientWidth; H = cv.clientHeight; cv.width = W * dpr; cv.height = H * dpr; };
-      addEventListener('resize', () => { geo = null; });
+      // geometria: il video parte grande quanto la sezione, poi la finestra si allontana fino a starci tutta
+      let G = null, W = 0, H = 0, dpr = 1;
+      const measure = () => {
+        win.classList.toggle('compact', root.clientWidth < 760);
+        win.style.transform = 'none';
+        const a = win.getBoundingClientRect(), v = vid.getBoundingClientRect(), RW = root.clientWidth, RH = root.clientHeight;
+        const hdr = ($('#top') || {}).offsetHeight || 60, w = a.width, h = a.height;
+        const fit = Math.min(RW * .92 / w, (RH - hdr - 36) * .94 / h), c = [v.left - a.left + v.width / 2, v.top - a.top + v.height / 2];
+        const s0 = RH > RW ? RW / v.width : Math.max(RW / v.width, RH / v.height) * 1.01;
+        const cx = RW / 2, cy = hdr + (RH - hdr) / 2;
+        G = { fit, s0, c, P0: [RW / 2, RH / 2], P1: [cx - fit * w / 2 + fit * c[0], cy - fit * h / 2 + fit * c[1]] };
+        dpr = Math.min(2, devicePixelRatio || 1) * Math.max(1, fit); W = cv.clientWidth; H = cv.clientHeight; cv.width = W * dpr; cv.height = H * dpr;
+        const ob = segBtns[0], tb = segBtns[3]; G.seg = [ob.offsetLeft, tb.offsetLeft, ob.offsetWidth];
+      };
+      addEventListener('resize', () => { G = null; });
       function wave(t) {
-        if (!W) return; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+        if (!W) return; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#0a0a0b'; ctx.fillRect(0, 0, W, H);
         const cuts = SEG.map((s, i) => s[1] ? easeIO((t - cutAt[i]) / CUT) : 0), spd = expoIO(span(t, SP0, SP1));
-        const px = W / U * (1 - .5 * spd), reveal = easeIO(span(t, TR0 + 200, TR0 + 1100)), uh = U * span(t, SC0, SC1), mid = H / 2 + 8, hgt = (H - 30) / 2;
+        const px = W / U * (1 - .5 * spd), reveal = easeIO(span(t, TR0, TR0 + 1000)), uh = U * span(t, SC0, SC1), mid = H / 2 + 7, hgt = (H - 26) / 2;
         let tot = 0; const xs = SEG.map((s, i) => { const x = tot; tot += s[0] * px * (1 - cuts[i]); return x; });
-        const off = (W - tot) / 2; // la traccia resta centrata mentre si accorcia
-        ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(off, mid - .5, tot * reveal, 1);
+        const off = (W - tot) / 2;
+        ctx.fillStyle = '#1f1f23'; ctx.fillRect(off, mid - .5, tot * reveal, 1);
         SEG.forEach(([w, sil], i) => {
           const ws = w * px * (1 - cuts[i]); if (ws < .3) return; const x0 = off + xs[i], gone = cuts[i];
-          if (sil) {
-            const seen = clamp((uh - starts[i]) / w), glow = clamp(seen * 1.5) * (1 - gone);
-            if (glow > .01) {
-              ctx.fillStyle = `rgba(255,80,80,${(.16 * glow).toFixed(3)})`; ctx.strokeStyle = `rgba(255,110,110,${(.6 * glow).toFixed(3)})`;
-              ctx.beginPath(); ctx.roundRect(x0 + .5, 20.5, Math.max(0, ws - 1), H - 22, 8); ctx.fill(); ctx.stroke();
-              if (ws > 40) { ctx.fillStyle = `rgba(255,150,150,${glow.toFixed(3)})`; ctx.font = '700 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.fillText('PAUSA', x0 + ws / 2, 13); }
-            }
+          const seen = sil ? clamp((uh - starts[i]) / w) : 0, mark = sil && seen > 0;
+          if (mark && ws > 2) { // pausa trovata: riquadro pieno, niente trasparenze
+            ctx.fillStyle = '#211413'; ctx.strokeStyle = '#4d2622'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.roundRect(x0 + .5, 18.5, Math.max(0, ws - 1), H - 19, 7); ctx.fill(); ctx.stroke();
+            if (ws > 44 && gone < .5) { ctx.fillStyle = '#e8877c'; ctx.font = '650 10.5px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.fillText('PAUSA', x0 + ws / 2, 12); }
           }
           for (let p = 0; p < ws; p += 2) {
             const gx = x0 + p; if (gx - off > W * reveal) break;
             const a = ampAt(i, p / ws) * hgt, done = starts[i] + w * (p / ws) <= uh;
-            ctx.fillStyle = sil ? (done ? `rgba(255,130,130,${(.9 - .6 * gone).toFixed(3)})` : 'rgba(255,255,255,.3)') : done ? '#fff' : 'rgba(255,255,255,.38)';
-            ctx.fillRect(gx, mid - a, 1.25, Math.max(1, a * 2));
+            ctx.fillStyle = sil ? (done ? '#e8877c' : '#3a3a3f') : done ? '#ededee' : '#55555b';
+            ctx.fillRect(gx, mid - a, 1.3, Math.max(1, a * 2));
           }
         });
-        // fascio di analisi
-        const bo = span(t, SC0 - 150, SC0) * (1 - span(t, SC1, SC1 + 200));
-        if (bo > 0) {
-          let i = SEG.findIndex((s, k) => uh < starts[k] + s[0]); if (i < 0) i = SEG.length - 1;
+        const bo = t > SC0 - 100 && t < SC1 + 100;
+        if (bo) { let i = SEG.findIndex((s, k) => uh < starts[k] + s[0]); if (i < 0) i = SEG.length - 1;
           const hx = off + xs[i] + SEG[i][0] * px * (1 - cuts[i]) * clamp((uh - starts[i]) / SEG[i][0]);
-          const g = ctx.createLinearGradient(hx - 70, 0, hx, 0); g.addColorStop(0, 'rgba(120,160,255,0)'); g.addColorStop(1, `rgba(120,160,255,${(.28 * bo).toFixed(3)})`);
-          ctx.fillStyle = g; ctx.fillRect(hx - 70, 18, 70, H - 18);
-          ctx.save(); ctx.globalAlpha = bo; ctx.shadowColor = 'rgba(160,190,255,1)'; ctx.shadowBlur = 16; ctx.fillStyle = '#fff'; ctx.fillRect(hx - 1, 16, 2, H - 16); ctx.restore();
-        }
+          ctx.fillStyle = '#5b93ff'; ctx.fillRect(hx - 1, 14, 2, H - 14); ctx.fillStyle = '#fff'; ctx.fillRect(hx - .5, 14, 1, H - 14); }
         return { cuts, spd };
       }
+      const pct = t => Math.round(100 * (.85 * span(t, SC0, SC1) + .15 * span(t, SP0, SP1)));
       return t => {
-        if (!geo) measure();
+        if (!G) measure();
         logo(t);
-        // 1) video a schermo intero che si allontana
-        const vin = ease(span(t, V_IN, V_IN + 700)), dz = expoIO(span(t, DZ0, DZ1)), k = 1 - dz;
-        const ex = easeIO(span(t, EX0, EX1));
-        css(ed, 1 - ex, { s: 1 - .06 * ex, y: -20 * ex, blur: 12 * ex });
-        css(vid, vin, { x: geo.dx * k, y: geo.dy * k, s: (1 + (geo.s - 1) * k) * (1.05 - .05 * vin) });
-        vid.style.borderRadius = (18 * dz).toFixed(1) + 'px';
-        scene.style.transform = `scale(${(1.08 - .08 * span(t, V_IN, DZ1)).toFixed(4)})`; // leggero movimento di camera
-        // 2) traccia audio ed elaborazione
-        const tin = ease(span(t, TR0, TR0 + 800)); css(trk, tin, { y: 40 * (1 - tin) });
-        const st = wave(t) || { cuts: SEG.map(() => 0), spd: 0 };
-        const nSil = SEG.filter(s => s[1]).length, nCut = st.cuts.filter(c => c >= 1).length;
-        const cutF = st.cuts.reduce((a, c) => a + c, 0) / nSil, dur = F.from - (F.from - F.mid) * cutF - (F.mid - F.to) * st.spd;
-        setT(stT, clock(dur)); setT(vTot, clock(dur));
-        setT(stN, nCut ? `${nCut} paus${nCut === 1 ? 'a tolta' : 'e tolte'}` : '');
-        setT(vX, st.spd > .05 ? '2×' : '1×'); vX.classList.toggle('on', st.spd > .05);
-        const pct = Math.round(100 * (.85 * span(t, SC0, SC1) + .15 * span(t, SP0, SP1)));
-        setT(bPct, t > SP1 ? '✓' : pct + '%'); setT(bTxt, t > SP1 ? 'Fatto' : t > SC1 ? 'Velocità 2×' : 'Elaborazione');
-        badge.classList.toggle('ok', t > SP1); stL.classList.toggle('busy', t > SC0 && t < SP1);
-        const bIn = ease(span(t, SC0 - 300, SC0 + 200)); css(badge, bIn, { y: -10 * (1 - bIn) });
-        const play = span(t, V_IN, SC0); setT(vCur, clock(724 + play * 40));
-        vProg.style.transform = `scaleX(${(.13 + .02 * play).toFixed(4)})`;
+        // 1) video a schermo intero → la finestra di StudyCut si allontana
+        const vin = ease(span(t, V_IN, V_IN + 700)), dz = expoIO(span(t, DZ0, DZ1)), ex = easeIO(span(t, EX0, EX1));
+        const s = G.s0 * Math.pow(G.fit / G.s0, dz), P = [G.P0[0] + (G.P1[0] - G.P0[0]) * dz, G.P0[1] + (G.P1[1] - G.P0[1]) * dz];
+        win.style.transform = `translate(${(P[0] - s * G.c[0]).toFixed(1)}px,${(P[1] - s * G.c[1]).toFixed(1)}px) scale(${s.toFixed(4)})`;
+        vid.style.borderRadius = (12 * dz).toFixed(1) + 'px';
+        css(ed, vin * (1 - ex), { s: 1 - .06 * ex, y: -20 * ex, blur: 12 * ex });
+        scene.style.transform = `scale(${(1.06 - .06 * span(t, V_IN, DZ1)).toFixed(4)})`;
+        // 2) elaborazione
+        const r = wave(t) || { cuts: SEG.map(() => 0), spd: 0 };
+        const nSil = SEG.filter(x => x[1]).length, nCut = r.cuts.filter(c => c >= 1).length, cutF = r.cuts.reduce((a, c) => a + c, 0) / nSil;
+        const noPause = F.from - (F.from - F.mid) * cutF, dur = noPause - (F.mid - F.to) * r.spd;
+        setT(tot, clock(dur)); setT(cur, clock(724 + 40 * span(t, V_IN, SC0)));
+        const on = t > SC0 - 250; sw.classList.toggle('on', on); skip.classList.toggle('on', on);
+        setT(sub, t < SC0 - 250 ? 'Tocca per cercare le pause' : t < SC1 ? `Cerco le pause… ${pct(t)}%` : `${nSil} pause trovate`);
+        setT(k1, t > SC0 ? clock(noPause) : '—'); setT(k2, t > SP0 ? clock(dur) : '—');
+        setT(k3, t > SP0 ? `−${Math.round((F.from - dur) / 60)} min` : t > SC0 ? `−${Math.round((F.from - noPause) / 60)} min` : '—');
+        const sp = r.spd; setT(sv, (1 + sp).toFixed(2).replace('.', ','));
+        ind.style.width = G.seg[2] + 'px'; ind.style.transform = `translateX(${(G.seg[0] + (G.seg[1] - G.seg[0]) * sp).toFixed(1)}px)`;
+        segBtns.forEach((b, i) => b.classList.toggle('on', i === (sp > .5 ? 3 : 0)));
+        setT(px2, sp > .5 ? '2×' : '1×'); px2.classList.toggle('on', sp > .5);
+        const busy = t > SC0 && t < SP1; btn.classList.toggle('busy', busy); btn.classList.toggle('ok', t >= SP1);
+        bFill.style.transform = `scaleX(${busy ? (pct(t) / 100).toFixed(3) : 0})`;
+        setT(bLbl, t < SC0 ? 'Crea a 1×' : busy ? `Elaborazione ${pct(t)}%` : 'Pronto a 2×');
+        setT(st, t < SC0 ? 'Originale' : t < SP1 ? 'Elaborazione' : `−${Math.round((F.from - F.to) / 60)} min`); st.classList.toggle('ok', t >= SP1);
         // 3) prima → dopo, in grande
         [nA, nArr, nB].forEach((el, i) => { const e = ease(span(t, NB + i * 160, NB + 520 + i * 160)); css(el, e, { y: 30 * (1 - e), blur: 10 * (1 - e) }); });
         arrP.style.strokeDashoffset = (1 - easeIO(span(t, NB + 160, NB + 760))).toFixed(3);
         // 4) dissolvenza + morphing nei minuti risparmiati
         const mo = easeIO(span(t, MO0, MO0 + 700)), mi = easeIO(span(t, MO0 + 120, MO1)), so = easeIO(span(t, SVOUT, SVOUT + 450));
         cmp.style.opacity = (1 - mo).toFixed(3); cmp.style.filter = mo > .01 ? `blur(${(9 * mo).toFixed(1)}px)` : '';
-        css(sv, mi * (1 - so), { s: (.92 + .08 * mi) * (1 - .06 * so), blur: 9 * (1 - mi) + 10 * so, y: -24 * so });
+        css(svd, mi * (1 - so), { s: (.92 + .08 * mi) * (1 - .06 * so), blur: 9 * (1 - mi) + 10 * so, y: -24 * so });
         num.classList.toggle('mf', t > MO0 && t < MO1 + 60);
         num.style.visibility = t > NB - 50 && t < SVOUT + 500 ? 'visible' : 'hidden';
       };
@@ -403,13 +433,61 @@ const shows = FEAT.map(f => {
   function play(from = 0) { cancelAnimationFrame(raf); clearTimeout(idleT); t0 = performance.now() - from; raf = requestAnimationFrame(frame); }
   function pause() { cancelAnimationFrame(raf); raf = 0; clearTimeout(idleT); }
   sec.querySelector('.sh-replay').onclick = () => play(0);
-  if (reduce) { draw(L - 1); return; }
+  if (reduce) { draw(L - 1); return { sec, pause }; }
   draw(0);
   new IntersectionObserver(es => { const vis = es[0].isIntersecting && !document.hidden;
     if (vis && !on) { on = true; play(0); bg && bg.start(); } else if (!vis && on) { on = false; pause(); bg && bg.stop(); } }, { threshold: .55 }).observe(sec);
   return { sec, pause };
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden) shows.forEach(s => s.pause()); });
+
+/* scroll: la vetrina si aggancia allo schermo; per andare oltre serve una spinta in più (con un po' di elastico) */
+(() => {
+  const secs = shows.map(s => s.sec); if (!secs.length || reduce) return;
+  const WHEEL = 240, TOUCH = 110, R = 70;
+  let lock = null, pull = 0, busyUntil = 0, relaxT = 0, y0 = 0, settleT = 0;
+  const film = s => s.querySelector('.sh-film');
+  const band = d => Math.sign(d) * R * (1 - Math.exp(-Math.abs(d) / (R * 2.2)));
+  const rubber = (s, d, anim) => { const f = film(s); f.style.transition = anim ? 'translate .55s var(--e-spring)' : 'none'; f.style.translate = d ? `0 ${(-band(d)).toFixed(1)}px` : '0 0'; };
+  const go = y => { busyUntil = Date.now() + 800; scrollTo({ top: Math.round(y), behavior: 'smooth' }); };
+  const aligned = s => Math.abs(s.getBoundingClientRect().top) < 6;
+  const topOf = s => s.getBoundingClientRect().top + scrollY;
+  function engage(s) { lock = s; pull = 0; rubber(s, 0, true); if (!aligned(s)) go(topOf(s)); }
+  function release(dir) { const s = lock; lock = null; pull = 0; rubber(s, 0, true);
+    go(dir > 0 ? topOf(s) + s.offsetHeight : Math.max(0, topOf(s) - innerHeight)); }
+  const relax = () => { if (lock) { pull = 0; rubber(lock, 0, true); } };
+  // quale vetrina sta entrando nello schermo, nella direzione dello scroll
+  const entering = dir => secs.find(s => { const r = s.getBoundingClientRect();
+    return dir > 0 ? r.top > 6 && r.top < innerHeight * .9 : r.top < -6 && r.bottom > innerHeight * .1; });
+  const free = () => !pal.hidden;
+  addEventListener('wheel', e => {
+    if (free() || e.ctrlKey) return;
+    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1); if (!dy) return;
+    if (Date.now() < busyUntil) { e.preventDefault(); return; }       // durante l'aggancio ignora l'inerzia
+    if (lock && !aligned(lock)) lock = null;
+    if (lock) {
+      e.preventDefault();
+      if (Math.sign(dy) !== Math.sign(pull)) pull = 0;
+      pull += dy; rubber(lock, pull, false);
+      clearTimeout(relaxT); relaxT = setTimeout(relax, 220);
+      if (Math.abs(pull) > WHEEL) release(Math.sign(pull));
+      return;
+    }
+    const s = entering(Math.sign(dy)); if (s) { e.preventDefault(); engage(s); }
+  }, { passive: false });
+  addEventListener('touchstart', e => { y0 = e.touches[0].clientY; if (lock && !aligned(lock)) lock = null; }, { passive: true });
+  addEventListener('touchmove', e => { if (!lock || free() || Date.now() < busyUntil) return; e.preventDefault();
+    pull = y0 - e.touches[0].clientY; rubber(lock, pull * 1.6, false); }, { passive: false });
+  addEventListener('touchend', () => { if (!lock) return; if (Math.abs(pull) > TOUCH) release(Math.sign(pull)); else relax(); });
+  // dopo uno scroll libero (dito, barra, tastiera) si aggancia se la vetrina è quasi a schermo intero
+  addEventListener('scroll', () => { clearTimeout(settleT); settleT = setTimeout(() => {
+    if (lock || free() || Date.now() < busyUntil) return;
+    const s = secs.find(s => { const r = s.getBoundingClientRect(); return Math.abs(r.top) > 6 && Math.abs(r.top) < innerHeight * .3; });
+    if (s) engage(s); else { const a = secs.find(aligned); if (a) lock = a; }
+  }, 160); }, { passive: true });
+  addEventListener('keydown', e => { if (!lock || free() || e.target.matches('input,textarea')) return;
+    const d = { ArrowDown: 1, PageDown: 1, ' ': 1, ArrowUp: -1, PageUp: -1 }[e.key]; if (d) { e.preventDefault(); release(d); } });
+})();
 
 /* sfondo dell'hero */
 const heroFx = window.FX && FX.shapes($('#heroFx'), { color: '#1f1f23', hoverColor: '#d8d8dc', backgroundColor: '#000000', cellSize: 12, brightness: .3, fade: .4, splashRadius: 60, splashStrength: .45 });

@@ -160,7 +160,7 @@ Regole per i tool con server:
   }
 }
 ```
-I nomi delle icone disponibili sono nell'oggetto `I` in `home/home.js`. Ogni tool con `featured` ha la sua sezione a schermo intero: parte quando è visibile, si ferma quando esce e alla fine resta sul logo con il pulsante Apri. Per un film nuovo aggiungi una voce a `FILMS` in `home/home.js` (`length`, `html()`, `mount()` che restituisce `render(ms)`) e gli stili in fondo a `home/home.css`; il film `cut` di StudyCut è un esempio completo.
+I nomi delle icone disponibili sono nell'oggetto `I` in `home/home.js`. Ogni tool con `featured` ha la sua sezione a schermo intero: lo scroll ci si aggancia (serve una spinta in più per andare oltre), parte quando è visibile, si ferma quando esce e alla fine resta sul logo con il pulsante Apri. Per un film nuovo aggiungi una voce a `FILMS` in `home/home.js` (`length`, `html()`, `mount()` che restituisce `render(ms)`) e gli stili in fondo a `home/home.css`; il film `cut` di StudyCut è un esempio completo.
 Se un `tool.json` contiene un errore, la build del gateway si ferma con un messaggio chiaro e il sito già online resta com'è.
 
 Per provare la generazione prima del push:
