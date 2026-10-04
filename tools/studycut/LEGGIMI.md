@@ -31,10 +31,10 @@ Al primo avvio l'app installa da sola yt-dlp e ffmpeg in un ambiente separato (`
 - Quando il download finisce, l'app trova i silenzi da sola.
 - **Player:** i controlli sono tutti sotto il video. Passando il mouse sulla barra vedi l'anteprima del fotogramma. Ci sono anche volume, ±10 s, picture-in-picture e schermo intero.
 - **Sidebar:** si chiudono con le icone in alto oppure con i tasti L e P.
-- **Salta i silenzi:** mentre guardi, le pause vengono saltate subito, senza dover ricodificare il video.
+- **Salta i silenzi:** dopo l'analisi il server prepara da solo una versione del video con le pause già tolte (avanzamento in "Salta i silenzi"). Il player usa quella: scorre di fila, senza salti né buffering, e la barra mostra sempre i tempi del video originale. Finché la versione non è pronta (o se lo spazio non basta) le pause vengono saltate durante la riproduzione. Se disattivi il salto si torna al video originale nello stesso punto.
 - **Velocità:** da 0,5× a 3×, con la voce che resta naturale. Puoi usare i preset o il cursore.
 - **Sensibilità:** soglia in dB, durata minima della pausa e margine, così non si tagliano le parole. Se cambi questi valori, premi "Analizza di nuovo".
-- **Esporta MP4:** crea un file già tagliato e accelerato da vedere su telefono o tablet.
+- **Esporta MP4:** crea un file già tagliato e accelerato da vedere su telefono o tablet. Parte dalla versione senza pause già pronta, quindi è più veloce (a 1× è immediato).
 - Puoi anche **importare un file** (icona in alto o trascinandolo nella finestra). Il file viene caricato a pezzi e l'avanzamento compare in "In corso". I formati che il browser non riproduce (AVI, WMV, FLV, MPG…) vengono convertiti in MP4.
 - **Libreria:** passando il mouse su un video parte un'anteprima a 10× con i tasti **Apri**, **Archivia** ed **Elimina** (clicca due volte per confermare). Su telefono tieni premuto. I video archiviati restano nella sezione "Archiviati" in fondo alla libreria.
 - Il tasto con la casetta in alto a sinistra torna alla home di uniSpace.

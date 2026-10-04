@@ -341,16 +341,17 @@ $('#quality').value = localStorage.quality || '720';
 $('#quality').onchange = e => { localStorage.quality = e.target.value; };
 
 /* ---------- jobs ---------- */
-const KIND = { download: 'Download', upload: 'Caricamento', analyze: 'Ricerca delle pause', export: 'Esportazione' };
+const KIND = { download: 'Download', upload: 'Caricamento', analyze: 'Ricerca delle pause', prepare: 'Versione senza pause', export: 'Esportazione' };
 async function pollJobs() {
   try { state.jobs = await api('api/jobs'); } catch { return; }
   for (const j of state.jobs) {
     if (j.status === 'running' || j.status === 'queued' || state.seen.has(j.id)) continue;
     state.seen.add(j.id);
+    if (j.status === 'error' && j.kind === 'prepare' && state.cur && state.cur.id === j.video) renderAnalysis();
     if (j.status === 'error') { toast(`${KIND[j.kind]} non riuscito`, `${j.title || j.url || ''}\n${j.message}`, 'err'); continue; }
     const r = j.result || {};
-    if (j.kind === 'download' || j.kind === 'upload') { await loadLib(); if (!state.cur) await open(r.video); analyze(r.video, true); }
-    if (j.kind === 'analyze') { if (state.cur && state.cur.id === r.video) await open(r.video); else loadLib(); }
+    if (j.kind === 'download' || j.kind === 'upload') { await loadLib(); if (!state.cur) await open(r.video); }
+    if (j.kind === 'analyze' || j.kind === 'prepare') { if (state.cur && state.cur.id === r.video) await open(r.video); else loadLib(); }
     if (j.kind === 'export') { toast('Esportazione pronta', j.title || ''); if (state.cur && state.cur.id === r.video) await open(r.video); }
   }
   renderJobs();
@@ -367,7 +368,7 @@ function renderJobsHeader() {
 function renderJobs() {
   const now = Date.now() / 1000;
   const vis = state.jobs.filter(j => !j.ended || now - j.ended < (j.status === 'error' ? 12 : 3))
-    .filter(j => j.kind !== 'analyze' || !j.ended).sort((a, b) => a.created - b.created);
+    .filter(j => (j.kind !== 'analyze' && j.kind !== 'prepare') || !j.ended || j.status === 'error').sort((a, b) => a.created - b.created);
   $('#actSec').classList.toggle('show', vis.length > 0);
   renderJobsHeader();
   const box = $('#acts'), keep = new Set();
@@ -401,7 +402,9 @@ function renderJobs() {
   const an = state.jobs.find(j => j.kind === 'analyze' && j.video === cur && !j.ended);
   progBtn($('#exportBtn'), ex, exportLabel());
   progBtn($('#analyzeBtn'), an, state.cur && state.cur.analysis ? 'Analizza di nuovo' : 'Analizza');
+  const pr = state.jobs.find(j => j.kind === 'prepare' && j.video === cur && !j.ended);
   if (an) $('#skipSub').textContent = `Analisi in corso · ${Math.round(an.progress * 100)}%`;
+  else if (pr && state.cur && state.cur.analysis) $('#skipSub').textContent = pr.status === 'queued' ? 'Versione senza pause in coda…' : `Preparo la versione senza pause · ${Math.round(pr.progress * 100)}%`;
 }
 function progBtn(btn, job, idle) {
   const lbl = btn.querySelector('.lbl'), fill = btn.querySelector('.fill'), was = btn.classList.contains('busy');
@@ -525,7 +528,7 @@ async function open(id) {
   maybeVideoTour();
   if (!same) {
     const src = `media/${m.id}/${m.file}`;
-    video.src = src; video.playbackRate = state.speed;
+    state.src = null; syncSrc(0, false);
     if (m.audio) pv.removeAttribute('src'); else pv.src = src;
     const poster = m.thumb ? `url('media/${m.id}/${m.thumb}')` : 'none';
     vwrap.style.setProperty('--poster', poster); vwrap.classList.toggle('audio', !!m.audio);
@@ -541,6 +544,7 @@ async function open(id) {
   $('#origDl').href = `media/${m.id}/${m.file}?dl=1`;
   $('#exTitle').textContent = m.audio ? 'Esporta audio' : 'Esporta MP4';
   if (m.analysis) { $('#noise').value = m.analysis.noise; $('#mind').value = m.analysis.min; $('#pad').value = m.analysis.pad; syncAdv(); }
+  if (same) syncSrc();
   renderAnalysis(); renderExports(!same); loadLib(); renderJobs(); tlKey = '';
 }
 function renderAnalysis() {
@@ -618,6 +622,44 @@ addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; $('#drop').
 addEventListener('dragover', e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; });
 addEventListener('drop', e => { e.preventDefault(); dragN = 0; $('#drop').classList.remove('show'); importFiles(e.dataTransfer.files); });
 
+/* ---------- versione senza pause ----------
+   Dopo l'analisi il server prepara un file con i silenzi gia' tolti (cut): il browser lo riproduce di
+   fila, senza salti e quindi senza buffering. La timeline resta nei tempi del video originale grazie
+   alla mappa [inizio_originale, inizio_tagliato, durata] di ogni tratto. Finche' non e' pronto, i
+   silenzi vengono saltati durante la riproduzione come ripiego. */
+const cutOk = m => !!(m && m.cut && m.cut.map && m.analysis && m.cut.key === m.analysis.key);
+const inCut = () => state.src === 'cut' && cutOk(state.cur);
+function segAt(mp, t, k) { // ultimo tratto con mp[i][k] <= t
+  let lo = 0, hi = mp.length - 1, r = 0;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (mp[mid][k] <= t) { r = mid; lo = mid + 1; } else hi = mid - 1; }
+  return r;
+}
+function toOrig(tc) { const mp = state.cur.cut.map; if (!mp.length) return tc; const s = mp[segAt(mp, tc, 1)]; return s[0] + clamp(tc - s[1], 0, s[2]); }
+function toCut(to) {
+  const mp = state.cur.cut.map; if (!mp.length) return to;
+  const i = segAt(mp, to, 0), s = mp[i];
+  if (to < s[0]) return s[1];
+  if (to <= s[0] + s[2]) return s[1] + (to - s[0]);
+  return i + 1 < mp.length ? mp[i + 1][1] : s[1] + s[2]; // dentro una pausa: riparte dal tratto dopo
+}
+const curT = () => state.cur ? (inCut() ? toOrig(video.currentTime) : video.currentTime) : 0;
+const durT = () => state.cur ? (inCut() ? state.cur.duration : (video.duration || state.cur.duration)) : 0;
+const seekTo = t => { if (state.cur) video.currentTime = inCut() ? toCut(t) : t; };
+function syncSrc(t, play) {
+  const m = state.cur; if (!m) return;
+  const want = state.skip && cutOk(m) ? 'cut' : 'orig';
+  if (want === state.src) return;
+  if (t === undefined) t = curT();
+  if (play === undefined) play = !video.paused;
+  state.src = want;
+  const file = want === 'cut' ? m.cut.file : m.file;
+  video.src = `media/${m.id}/${file}`; video.playbackRate = state.speed;
+  const pos = want === 'cut' ? toCut(t) : t;
+  if (pos > 0.05) video.addEventListener('loadedmetadata', () => { video.currentTime = pos; }, { once: true });
+  if (play) video.play().catch(() => {});
+  tlKey = '';
+}
+
 /* ---------- silences ---------- */
 async function analyze(id, quiet) {
   id = typeof id === 'string' ? id : state.cur && state.cur.id; if (!id) return;
@@ -632,7 +674,7 @@ function syncAdv() {
   ['noise', 'mind', 'pad'].forEach(id => fillRange($('#' + id)));
 }
 ['noise', 'mind', 'pad'].forEach(id => $('#' + id).addEventListener('input', syncAdv));
-const toggleSkip = () => { if (!state.cur || !state.cur.analysis) return; state.skip = !state.skip; localStorage.skip = state.skip ? '1' : '0'; renderAnalysis(); tlKey = ''; };
+const toggleSkip = () => { if (!state.cur || !state.cur.analysis) return; state.skip = !state.skip; localStorage.skip = state.skip ? '1' : '0'; syncSrc(); renderAnalysis(); tlKey = ''; };
 $('#skipRow').onclick = () => {
   const m = state.cur; if (!m) return;
   if (m.analysis) return toggleSkip();
@@ -649,7 +691,7 @@ function findSkip(t) {
 }
 let lastFlash = 0;
 function loop() {
-  if (state.skip && state.cur && !video.paused && !video.seeking) {
+  if (state.skip && state.cur && !inCut() && !video.paused && !video.seeking) {
     const sk = findSkip(video.currentTime);
     if (sk && sk[1] - video.currentTime > 0.05) {
       video.currentTime = Math.min(sk[1], video.duration || sk[1]);
@@ -668,7 +710,7 @@ function togglePlay(fx) {
 }
 const syncPlay = () => { $('#playBtn').classList.toggle('playing', !video.paused); vwrap.classList.toggle('paused', video.paused); };
 ['play', 'pause', 'ended', 'loadedmetadata', 'emptied'].forEach(ev => video.addEventListener(ev, syncPlay));
-const seekBy = d => { video.currentTime = clamp(video.currentTime + d, 0, video.duration || 0); };
+const seekBy = d => seekTo(clamp(curT() + d, 0, durT()));
 $('#playBtn').onclick = () => togglePlay(false);
 $('#back').onclick = () => seekBy(-10); $('#fwd').onclick = () => seekBy(10);
 
@@ -731,32 +773,35 @@ function drawTL() {
   thick += ((hov ? (dragging ? 10 : 8) : base) - thick) * .22; knob += ((hov ? (dragging ? 9 : 7) : base + 1) - knob) * .22;
   if (Math.abs(thick - (hov ? 8 : base)) < .02) thick = Math.round(thick * 50) / 50;
   let buf = 0; try { const b = video.buffered; for (let i = 0; i < b.length; i++) if (b.start(i) <= video.currentTime + .5) buf = Math.max(buf, b.end(i)); } catch {}
-  const key = [W, H, dpr, video.currentTime.toFixed(2), state.skip, m.id, m.analysis && m.analysis.count, hoverX, buf.toFixed(0), !!fsEl(), thick.toFixed(2), knob.toFixed(2), state.speed].join('|');
+  if (inCut()) buf = toOrig(buf);
+  const ct = curT();
+  const key = [W, H, dpr, ct.toFixed(2), state.skip, m.id, m.analysis && m.analysis.count, hoverX, buf.toFixed(0), !!fsEl(), thick.toFixed(2), knob.toFixed(2), state.speed].join('|');
   if (key === tlKey || !W) return; tlKey = key;
   if (!colors) colors = { sil: cssv('--silence'), sp: cssv('--speech'), faint: cssv('--faint'), head: cssv('--head') };
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const d = video.duration || m.duration || 1, h = thick, y = (H - h) / 2, a = m.analysis, R = knob + 1;
-  const px = Math.min(W, video.currentTime / d * W), X = x => R + x * (W - 2 * R) / W; // margine per il pallino
+  const d = durT() || 1, h = thick, y = (H - h) / 2, a = m.analysis, R = knob + 1;
+  const px = Math.min(W, ct / d * W), X = x => R + x * (W - 2 * R) / W; // margine per il pallino
   const spans = (to) => { if (a) { let t = 0; for (const [s, e] of a.skips) { if (s > t) ctx.fillRect(X(t / d * W), y, (s - t) / d * (W - 2 * R), h); t = e; } if (t < d) ctx.fillRect(X(t / d * W), y, (d - t) / d * (W - 2 * R), h); } else ctx.fillRect(X(0), y, to / d * (W - 2 * R), h); };
   ctx.save(); ctx.beginPath(); ctx.roundRect(X(0), y, W - 2 * R, h, h / 2); ctx.clip();
   ctx.fillStyle = colors.sil; ctx.fillRect(0, y, W, h);
   ctx.fillStyle = colors.sp; ctx.globalAlpha = .38; spans(buf);
-  ctx.globalAlpha = 1; ctx.beginPath(); ctx.rect(0, y, X(px), h); ctx.clip(); spans(video.currentTime);
+  ctx.globalAlpha = 1; ctx.beginPath(); ctx.rect(0, y, X(px), h); ctx.clip(); spans(ct);
   ctx.restore();
   if (hoverX >= 0 && !dragging) { ctx.fillStyle = colors.faint; ctx.fillRect(X(hoverX) - .5, y - 3, 1, h + 6); }
   ctx.fillStyle = colors.head; ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 4;
   ctx.beginPath(); ctx.arc(X(px), H / 2, knob, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
   const rem = state.speed !== 1 || (a && state.skip) ? `<span class="rem"> · ${fmt(remaining())} rimanenti</span>` : '';
-  const tt = `<b>${fmt(video.currentTime)}</b> / ${fmt(d)}${rem}`;
+  const tt = `<b>${fmt(ct)}</b> / ${fmt(d)}${rem}`;
   const te = $('#tTime'); if (te._h !== tt) { te._h = tt; te.innerHTML = tt; }
 }
 function remaining() {
-  const m = state.cur, d = video.duration || m.duration, t = video.currentTime; let left = d - t;
+  if (inCut()) return Math.max(0, (video.duration || state.cur.cut.duration) - video.currentTime) / state.speed;
+  const m = state.cur, d = durT(), t = curT(); let left = d - t;
   if (m.analysis && state.skip) for (const [s, e] of m.analysis.skips) if (e > t) left -= e - Math.max(s, t);
   return Math.max(0, left) / state.speed;
 }
-const tAt = x => clamp(x / cv.clientWidth, 0, 1) * (video.duration || state.cur.duration);
+const tAt = x => clamp(x / cv.clientWidth, 0, 1) * durT();
 let pvBusy = false, pvWant = null;
 function preview(t) {
   if (isAudio() || !pv.src || matchMedia('(hover:none)').matches) return;
@@ -774,7 +819,7 @@ function seekHover(e) {
   tip.style.left = `${clamp(hoverX, half, r.width - half)}px`;
   $('#tipT').innerHTML = `${fmt(t)}${findSkip(t) ? '<em>pausa</em>' : ''}`;
   seek.classList.add('hov');
-  if (dragging) video.currentTime = t; else preview(t);
+  if (dragging) seekTo(t); else preview(t);
 }
 let wasPlaying = false;
 seek.addEventListener('pointerdown', e => {
@@ -831,7 +876,7 @@ $('#delBtn').onclick = async () => {
 };
 async function closeViewer() {
   if (!state.cur) return;
-  state.cur = null; video.pause();
+  state.cur = null; state.src = null; video.pause();
   if (!reduce) await $('#viewer').animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.98)', filter: 'blur(6px)' }], { duration: 260, easing: 'ease-in', fill: 'forwards' }).finished;
   $('#viewer').getAnimations().forEach(a => a.cancel());
   video.removeAttribute('src'); video.load(); pv.removeAttribute('src');

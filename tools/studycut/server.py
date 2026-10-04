@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """StudyCut - scarica, consulta, taglia i silenzi e cambia velocita' alle lezioni.
 Gira sul tuo computer (127.0.0.1) oppure in Docker dietro il gateway StudyKit."""
-import json, os, re, shutil, subprocess, sys, threading, time, uuid, webbrowser
+import hashlib, json, math, os, re, shutil, subprocess, sys, threading, time, uuid, webbrowser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, quote, parse_qs
@@ -40,6 +40,9 @@ def clean_partials():
         for d in lib.iterdir():
             if d.is_dir() and VID_RE.match(d.name) and not (d / "meta.json").exists():
                 shutil.rmtree(d, ignore_errors=True)
+            elif d.is_dir() and VID_RE.match(d.name):  # file temporanei di lavori interrotti
+                for f in list(d.glob("*.part.*")) + list(d.glob("graph*.txt")):
+                    f.unlink(missing_ok=True)
 
 
 def dir_size(root):
@@ -239,6 +242,9 @@ def library(lib):
                 out.append(load_meta(lib, d.name))
             except Exception:
                 pass
+    for m in out:  # la mappa dei tagli serve solo al player
+        if m.get("cut"):
+            m["cut"] = {k: v for k, v in m["cut"].items() if k != "map"}
     return sorted(out, key=lambda m: m["created"], reverse=True)
 
 
@@ -338,6 +344,7 @@ def job_download(jid, sp, url, quality):
         raise RuntimeError("yt-dlp non installato: esegui  pip install -U \"yt-dlp[default]\"")
     lib = sp.lib
     sp.need(50 << 20, "scaricare un video")
+    auto, m = False, None
     vid = uuid.uuid4().hex[:10]
     d = lib / vid
     d.mkdir()
@@ -415,16 +422,31 @@ def job_download(jid, sp, url, quality):
         if sp.over():
             raise QuotaError(f"Spazio esaurito: il video supera il tuo spazio di {gb(sp.quota)}. Elimina qualche video e riprova.")
         upd(jid, result={"video": vid}, message=m["title"])
+        auto = True
     except Exception as e:
         shutil.rmtree(d, ignore_errors=True)
         if isinstance(e, QuotaError) or "Spazio esaurito" in str(e):
             raise RuntimeError(re.sub(r"^.*?(Spazio esaurito)", r"\1", str(e)))
         msg = re.sub(r"\x1b\[[0-9;]*m", "", str(e)).replace("ERROR: ", "")
         raise RuntimeError(msg)
+    if auto:  # cerca subito le pause (e poi prepara la versione senza pause), anche a pagina chiusa
+        start_analyze(sp, vid, title=m["title"])
 
 
 # ---------------------------------------------------------------- silences
-def job_analyze(jid, lib, vid, noise, mind, pad):
+DEFAULT_ANALYSIS = (-35.0, 0.6, 0.12)
+PREP = {}  # (uid, vid) -> chiave dell'analisi che si sta preparando (per fermare le preparazioni superate)
+
+
+def start_analyze(sp, vid, noise=None, mind=None, pad=None, title=None):
+    noise, mind, pad = [d if v is None else v for v, d in zip((noise, mind, pad), DEFAULT_ANALYSIS)]
+    jid = new_job("analyze", vid, owner=sp.uid, title=title)
+    run_job(jid, job_analyze, sp, vid, noise, mind, pad, sem=CPU_SEM)
+    return jid
+
+
+def job_analyze(jid, sp, vid, noise, mind, pad):
+    lib = sp.lib
     m = load_meta(lib, vid)
     src, dur = lib / vid / m["file"], m["duration"] or 1
     upd(jid, message="Analisi audio...")
@@ -458,11 +480,21 @@ def job_analyze(jid, lib, vid, noise, mind, pad):
         if b2 - a2 > 0.08:
             skips.append([round(a2, 3), round(b2, 3)])
     removed = sum(b - a for a, b in skips)
+    key = hashlib.sha1(json.dumps([round(dur, 3), skips]).encode()).hexdigest()[:10]
     m = load_meta(lib, vid)
-    m["analysis"] = {"noise": noise, "min": mind, "pad": pad, "skips": skips,
+    m["analysis"] = {"noise": noise, "min": mind, "pad": pad, "skips": skips, "key": key,
                      "kept": max(0.0, dur - removed), "count": len(skips)}
+    old = m.get("cut")
+    if not (old and old.get("key") == key):
+        m["cut"] = None
+        if old:
+            (lib / vid / old["file"]).unlink(missing_ok=True)
+    m.pop("cut_error", None)
     save_meta(lib, m)
     upd(jid, result={"video": vid}, message=f"{len(skips)} silenzi trovati")
+    # subito dopo: la versione gia' tagliata, che il browser riproduce senza salti (niente buffering)
+    if skips and not m.get("cut"):
+        start_prepare(sp, vid, m)
 
 
 def keep_segments(skips, dur):
@@ -486,75 +518,283 @@ def atempo_chain(s):
     return ",".join(f"atempo={x:.5f}" for x in parts)
 
 
-def job_export(jid, sp, vid, speed, remove):
-    lib = sp.lib
-    m = load_meta(lib, vid)
-    src, dur = lib / vid / m["file"], m["duration"]
-    if remove and not m.get("analysis"):
-        raise RuntimeError("Analizza prima i silenzi")
-    keep = keep_segments(m["analysis"]["skips"], dur) if remove else [(0, dur)]
-    out_dur = sum(b - a for a, b in keep) / speed
-    # peso stimato dell'esportazione: come l'originale, in proporzione alla durata
-    sp.need(int(src.stat().st_size * out_dur / max(dur or 1, 0.1) * 1.1) + (20 << 20), "questa esportazione")
-    is_audio = m.get("audio", False)
-    vf, af = [], []
-    if remove:
-        expr = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in keep)
-        vf += [f"select='{expr}'", "setpts=N/FRAME_RATE/TB"]
-        af += [f"aselect='{expr}'", "asetpts=N/SR/TB"]
-    if abs(speed - 1) > 1e-3:
-        vf.append(f"setpts=PTS/{speed:.5f}")
-        af.append(atempo_chain(speed))
-    tag = f"{speed:g}x".replace(".", ",") + ("_senza-silenzi" if remove else "")
-    name = f"export_{tag}.{'m4a' if is_audio else 'mp4'}"
-    out = lib / vid / name
-    tmp = lib / vid / (name + ".part" + out.suffix)
-    cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(src)]
-    if af:
-        graph = f"[0:a]{','.join(af)}[a]" if is_audio else \
-            f"[0:v]{','.join(vf)}[v];[0:a]{','.join(af)}[a]"
-        if len(graph) > 6000:  # grafi lunghi -> file (limiti della riga di comando)
-            gfile = lib / vid / "graph.txt"
-            gfile.write_text(graph, "utf-8")
-            cmd += (["-/filter_complex", str(gfile)] if FF_MAJOR >= 7
-                    else ["-filter_complex_script", str(gfile)])
-        else:
-            cmd += ["-filter_complex", graph]
-        cmd += ["-map", "[a]"] if is_audio else ["-map", "[v]", "-map", "[a]"]
+STD_FPS = {23.976: "24000/1001", 29.97: "30000/1001", 59.94: "60000/1001", 47.952: "48000/1001"}
+
+
+def streams(path):
+    """Indici (tra i flussi dello stesso tipo) del video principale e dell'audio, e frame rate."""
+    r = subprocess.run([FFMPEG, "-hide_banner", "-i", str(path)], capture_output=True,
+                       text=True, errors="ignore")
+    v_idx = a_idx = None
+    nv = na = 0
+    fps = None
+    for l in r.stderr.splitlines():
+        if not re.match(r"\s*Stream #\d+:\d+", l):
+            continue
+        if ": Video:" in l:
+            if v_idx is None and "attached pic" not in l:
+                v_idx = nv
+                f = re.search(r"([\d.]+)\s*fps", l) or re.search(r"([\d.]+)\s*tbr", l)
+                fps = float(f[1]) if f else None
+            nv += 1
+        elif ": Audio:" in l:
+            if a_idx is None:
+                a_idx = na
+            na += 1
+    if not fps or fps <= 1 or fps > 240:
+        fps = 30.0
+    fps = min(fps, 60.0)
+    for k, s in STD_FPS.items():
+        if abs(fps - k) < 0.02:
+            return v_idx, a_idx, s, int(s.split("/")[0]) / int(s.split("/")[1])
+    fps = round(fps, 3)
+    return v_idx, a_idx, f"{fps:g}", fps
+
+
+ACH = 1024      # campioni per blocco audio dopo asetnsamples
+SR = 48000
+
+
+def cut_plan(keep, rate):
+    """Converte i tratti da tenere in intervalli di fotogrammi (video) e di blocchi audio, mantenendo
+    l'audio allineato al video entro mezzo blocco (~10 ms) su tutta la durata.
+    Restituisce (frames, chunks, map) con map = [[inizio_originale, inizio_tagliato, durata], ...]."""
+    c = ACH / SR
+    frames, chunks, mp = [], [], []
+    vt = at = 0.0
+    last_chunk = -1
+    for a, b in keep:
+        ka, kb = math.ceil(a * rate - 1e-6), math.ceil(b * rate - 1e-6) - 1
+        if kb < ka:
+            continue
+        n = kb - ka + 1
+        mp.append([round(ka / rate, 4), round(vt, 4), round(n / rate, 4)])
+        frames.append((ka, kb))
+        vt += n / rate
+        na = max(round(ka / rate / c), last_chunk + 1)
+        cnt = round((vt - at) / c)
+        if cnt > 0:
+            chunks.append((na, na + cnt - 1))
+            last_chunk = na + cnt - 1
+            at += cnt * c
+    return frames, chunks, mp, vt
+
+
+def sel_expr(r):
+    """Espressione bilanciata (O(log n) per fotogramma): vero se n cade in uno degli intervalli."""
+    if len(r) == 1:
+        return f"between(n,{r[0][0]},{r[0][1]})"
+    mid = len(r) // 2
+    return f"if(lt(n,{r[mid][0]}),{sel_expr(r[:mid])},{sel_expr(r[mid:])})"
+
+
+def build_cmd(src, out, is_audio, keep=None, speed=1.0, x264="veryfast", crf=23, gdir=None):
+    """Comando ffmpeg che toglie i tratti non in `keep` (se dato) e cambia la velocita'.
+    Restituisce (cmd, durata_in_uscita, map)."""
+    v_idx, a_idx, rate_s, rate = streams(src)
     if is_audio:
-        cmd += ["-vn"]
+        v_idx = None
+    if v_idx is None and a_idx is None:
+        raise RuntimeError("Il file non contiene ne' audio ne' video")
+    if keep is not None and a_idx is None:
+        raise RuntimeError("Per togliere i silenzi serve una traccia audio")
+    vf, af, mp, out_dur = [], [], None, None
+    if v_idx is not None:
+        vf.append(f"fps=fps={rate_s}:start_time=0")
+    if a_idx is not None:
+        af.append(f"aresample={SR}:async=1:first_pts=0")
+    if keep is not None:
+        frames, chunks, mp, out_dur = cut_plan(keep, rate)
+        if not frames or not chunks:
+            raise RuntimeError("Dopo il taglio non resta niente: abbassa la soglia o la pausa minima")
+        if v_idx is not None:
+            vf += [f"select='{sel_expr(frames)}'", "setpts=N/FRAME_RATE/TB"]
+        af += [f"asetnsamples=n={ACH}:p=0", f"aselect='{sel_expr(chunks)}'", "asetpts=N/SR/TB"]
+    if abs(speed - 1) > 1e-3:
+        if v_idx is not None:
+            vf += [f"setpts=PTS/{speed:.5f}", f"fps=fps={rate_s}"]
+        if a_idx is not None:
+            af.append(atempo_chain(speed))
+    if v_idx is not None:
+        vf += ["scale=trunc(iw/2)*2:trunc(ih/2)*2", "format=yuv420p"]
+    graph = []
+    if v_idx is not None:
+        graph.append(f"[0:v:{v_idx}]{','.join(vf)}[v]")
+    if a_idx is not None:
+        graph.append(f"[0:a:{a_idx}]{','.join(af)}[a]")
+    graph = ";".join(graph)
+    cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", str(src)]
+    if len(graph) > 6000 and gdir:  # grafi lunghi -> file (limiti della riga di comando)
+        gfile = gdir / f"graph_{uuid.uuid4().hex[:6]}.txt"
+        gfile.write_text(graph, "utf-8")
+        cmd += (["-/filter_complex", str(gfile)] if FF_MAJOR >= 7 else ["-filter_complex_script", str(gfile)])
     else:
-        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"]
-    cmd += ["-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-            "-progress", "pipe:1", "-nostats", str(tmp)]
-    upd(jid, message="Esportazione...")
+        gfile = None
+        cmd += ["-filter_complex", graph]
+    if v_idx is not None:
+        g = max(12, int(round(rate * 2)))  # un fotogramma chiave ogni ~2 s: ricerca veloce nel player
+        cmd += ["-map", "[v]", "-r", rate_s, "-c:v", "libx264", "-preset", x264, "-crf", str(crf),
+                "-g", str(g), "-profile:v", "high", "-pix_fmt", "yuv420p"]
+    if a_idx is not None:
+        cmd += ["-map", "[a]", "-c:a", "aac", "-b:a", "128k", "-ac", "2"]
+    if is_audio or v_idx is None:
+        cmd += ["-vn"]
+    cmd += ["-sn", "-dn", "-map_metadata", "-1", "-movflags", "+faststart",
+            "-progress", "pipe:1", "-nostats", str(out)]
+    return cmd, out_dur, mp, gfile
+
+
+def run_ffmpeg(jid, cmd, sp, out_dur, label, alive=None):
+    """Esegue ffmpeg con avanzamento; si ferma se finisce lo spazio o se alive() diventa falso."""
+    upd(jid, message=f"{label}...")
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                          errors="ignore")
     err = []
     threading.Thread(target=lambda: err.extend(p.stderr), daemon=True).start()
-    last, over = time.time(), False
+    last, why = time.time(), None
     for line in p.stdout:
-        if sp.quota is not None and time.time() - last > 2:
+        if time.time() - last > 2:
             last = time.time()
-            if sp.over():
-                over = True
+            if sp.quota is not None and sp.over():
+                why = "quota"
+            elif alive and not alive():
+                why = "stop"
+            if why:
                 p.kill()
                 break
         if line.startswith(("out_time_us=", "out_time_ms=")):
             try:
                 sec = int(line.split("=")[1]) / 1e6
-                upd(jid, progress=min(0.99, sec / max(out_dur, 0.1)),
-                    message=f"Esportazione  {int(min(sec/max(out_dur,.1),1)*100)}%")
+                pr = min(0.99, sec / max(out_dur, 0.1))
+                upd(jid, progress=pr, message=f"{label}  {int(pr * 100)}%")
             except ValueError:
                 pass
     p.wait()
-    if over:
+    return p.returncode, why, "".join(err)
+
+
+def cut_ready(m):
+    c, a = m.get("cut"), m.get("analysis")
+    return bool(c and a and c.get("key") == a.get("key"))
+
+
+def start_prepare(sp, vid, m):
+    k = (sp.uid, vid)
+    with LOCK:
+        if PREP.get(k) == m["analysis"]["key"]:
+            return None
+        PREP[k] = m["analysis"]["key"]
+    jid = new_job("prepare", vid, owner=sp.uid, title=m["title"])
+    run_job(jid, job_prepare, sp, vid, m["analysis"]["key"], sem=CPU_SEM)
+    return jid
+
+
+def job_prepare(jid, sp, vid, key):
+    """Crea la versione senza silenzi usata dal player: il browser la riproduce di fila, senza salti."""
+    lib, k = sp.lib, (sp.uid, vid)
+    alive = lambda: PREP.get(k) == key and mpath(lib, vid).exists()
+    gfile = tmp = None
+    try:
+        if not alive():
+            return upd(jid, message="Superata da un'analisi piu' recente")
+        m = load_meta(lib, vid)
+        src, dur = lib / vid / m["file"], m["duration"] or 0
+        keep = keep_segments(m["analysis"]["skips"], dur)
+        is_audio = m.get("audio", False)
+        name = f"cut_{key}.{'m4a' if is_audio else 'mp4'}"
+        out, tmp = lib / vid / name, lib / vid / f"cut_{key}.part.{'m4a' if is_audio else 'mp4'}"
+        kept = sum(b - a for a, b in keep)
+        try:
+            sp.need(int(src.stat().st_size * kept / max(dur, 0.1) * 1.15) + (20 << 20),
+                    "preparare la versione senza pause")
+        except QuotaError as e:
+            raise QuotaError(f"{e} Intanto i silenzi vengono saltati durante la riproduzione.")
+        cmd, out_dur, mp, gfile = build_cmd(src, tmp, is_audio, keep=keep, crf=22, gdir=lib / vid)
+        code, why, err = run_ffmpeg(jid, cmd, sp, out_dur, "Preparo la versione senza pause", alive)
+        if why == "quota":
+            raise QuotaError(f"Spazio esaurito: hai raggiunto {gb(sp.quota)}. "
+                             "Intanto i silenzi vengono saltati durante la riproduzione.")
+        if why == "stop":
+            return upd(jid, message="Superata da un'analisi piu' recente")
+        if code != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+            raise RuntimeError("ffmpeg: " + err.strip()[-300:])
+        m = load_meta(lib, vid)
+        if not (m.get("analysis") and m["analysis"].get("key") == key):
+            return upd(jid, message="Superata da un'analisi piu' recente")
+        os.replace(tmp, out)
+        for f in (lib / vid).glob("cut_*"):
+            if f.name != name:
+                f.unlink(missing_ok=True)
+        m["cut"] = {"file": name, "key": key, "duration": round(out_dur, 3), "map": mp,
+                    "size": out.stat().st_size}
+        m.pop("cut_error", None)
+        save_meta(lib, m)
+        upd(jid, result={"video": vid}, message="Versione senza pause pronta")
+    except Exception as e:
+        try:
+            m = load_meta(lib, vid)
+            if m.get("analysis") and m["analysis"].get("key") == key:
+                m["cut_error"] = {"key": key, "msg": str(e)[-300:], "quota": isinstance(e, QuotaError),
+                                  "at": time.time()}
+                save_meta(lib, m)
+        except Exception:
+            pass
+        raise
+    finally:
+        if tmp is not None and tmp.exists():
+            tmp.unlink(missing_ok=True)
+        if gfile is not None:
+            gfile.unlink(missing_ok=True)
+        with LOCK:
+            if PREP.get(k) == key:
+                PREP.pop(k, None)
+
+
+def job_export(jid, sp, vid, speed, remove):
+    lib = sp.lib
+    m = load_meta(lib, vid)
+    src, dur = lib / vid / m["file"], m["duration"] or probe_duration(lib / vid / m["file"])
+    if remove and not m.get("analysis"):
+        raise RuntimeError("Analizza prima i silenzi")
+    is_audio = m.get("audio", False)
+    tag = f"{speed:g}x".replace(".", ",") + ("_senza-silenzi" if remove else "")
+    name = f"export_{tag}.{'m4a' if is_audio else 'mp4'}"
+    out = lib / vid / name
+    tmp = lib / vid / f"{name}.part{out.suffix}"
+    keep = None
+    if remove and cut_ready(m) and (lib / vid / m["cut"]["file"]).exists():
+        src, keep = lib / vid / m["cut"]["file"], None   # la versione senza pause e' gia' pronta
+        base = m["cut"]["duration"]
+    elif remove:
+        keep = keep_segments(m["analysis"]["skips"], dur)
+        base = sum(b - a for a, b in keep)
+    else:
+        base = dur
+    out_dur = base / speed
+    # peso stimato dell'esportazione: come l'originale, in proporzione alla durata
+    sp.need(int((lib / vid / m["file"]).stat().st_size * out_dur / max(dur or 1, 0.1) * 1.1) + (20 << 20),
+            "questa esportazione")
+    gfile = None
+    try:
+        if keep is None and abs(speed - 1) < 1e-3:
+            upd(jid, message="Esportazione...")
+            shutil.copyfile(src, tmp)  # senza pause a 1x: e' proprio la versione gia' pronta
+        else:
+            cmd, _, _, gfile = build_cmd(src, tmp, is_audio, keep=keep, speed=speed, gdir=lib / vid)
+            code, why, err = run_ffmpeg(jid, cmd, sp, out_dur, "Esportazione",
+                                        lambda: mpath(lib, vid).exists())
+            if why == "quota":
+                raise QuotaError(f"Spazio esaurito durante l'esportazione: hai raggiunto {gb(sp.quota)}. "
+                                 "Elimina qualche video e riprova.")
+            if why == "stop":
+                raise RuntimeError("Video eliminato durante l'esportazione")
+            if code != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+                raise RuntimeError("ffmpeg: " + err.strip()[-300:])
+        os.replace(tmp, out)
+    finally:
         tmp.unlink(missing_ok=True)
-        raise QuotaError(f"Spazio esaurito durante l'esportazione: hai raggiunto {gb(sp.quota)}. Elimina qualche video e riprova.")
-    if p.returncode != 0:
-        tmp.unlink(missing_ok=True)
-        raise RuntimeError("ffmpeg: " + "".join(err)[-300:])
-    os.replace(tmp, out)
+        if gfile is not None:
+            gfile.unlink(missing_ok=True)
     m = load_meta(lib, vid)
     m["exports"] = [e for e in m.get("exports", []) if e["file"] != name]
     m["exports"].insert(0, {"file": name, "speed": speed, "remove": remove,
@@ -731,7 +971,18 @@ class H(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[:2] == ["api", "video"] and VID_RE.match(parts[2]):
             if not mpath(lib, parts[2]).exists():
                 return self.err("Video non trovato", 404)
-            return self.send_json(load_meta(lib, parts[2]))
+            m = load_meta(lib, parts[2])
+            # video analizzati prima di questa versione (o preparazione interrotta): la prepara ora
+            a, ce = m.get("analysis"), m.get("cut_error") or {}
+            if a and a.get("skips") and FFMPEG:
+                if not a.get("key"):
+                    a["key"] = hashlib.sha1(json.dumps([round(m["duration"] or 0, 3), a["skips"]]).encode()).hexdigest()[:10]
+                    save_meta(lib, m)
+                # dopo un errore si riprova solo con una nuova analisi, o (spazio esaurito) dopo 2 minuti
+                retry = ce.get("key") != a["key"] or (ce.get("quota") and time.time() - ce.get("at", 0) > 120)
+                if not cut_ready(m) and retry:
+                    start_prepare(sp, parts[2], m)
+            return self.send_json(m)
         if parts == ["api", "jobs"]:
             return self.send_json(jobs_snapshot(sp.uid))
         if len(parts) == 3 and parts[:2] == ["api", "jobs"]:
@@ -810,8 +1061,7 @@ class H(BaseHTTPRequestHandler):
             noise = max(-80.0, min(-5.0, float(data.get("noise", -35))))
             mind = max(0.1, min(10.0, float(data.get("min", 0.6))))
             pad = max(0.0, min(1.0, float(data.get("pad", 0.12))))
-            jid = new_job("analyze", vid, owner=sp.uid, title=load_meta(lib, vid)["title"])
-            run_job(jid, job_analyze, lib, vid, noise, mind, pad, sem=CPU_SEM)
+            jid = start_analyze(sp, vid, noise, mind, pad, title=load_meta(lib, vid)["title"])
             return self.send_json({"job": jid})
         if parts == ["api", "export"]:
             speed = max(0.25, min(4.0, float(data.get("speed", 1))))
@@ -854,6 +1104,7 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:
             shutil.rmtree(d, ignore_errors=True)
             return self.err(str(e) or "Importazione non riuscita", 500)
+        start_analyze(sp, vid, title=m["title"])
         self.send_json(m)
 
     # ---- upload a pezzi: POST api/upload {name,size} -> PUT api/upload/<id>?offset=N -> POST api/upload/<id>/done
@@ -906,11 +1157,13 @@ class H(BaseHTTPRequestHandler):
                 upd(jid, progress=0.97, message="Creo anteprima...")
                 m = finalize(lib, vid, dst, up["title"], "file locale", jid)
                 upd(jid, result={"video": vid}, message=m["title"])
+                return m
 
             def worker():
                 try:
-                    work(jid)
+                    m = work(jid)
                     upd(jid, status="done", progress=1.0, ended=time.time())
+                    start_analyze(sp, vid, title=m["title"])
                 except Exception as e:  # noqa
                     shutil.rmtree(lib / vid, ignore_errors=True)
                     upd(jid, status="error", message=str(e).strip()[-400:] or "Errore", ended=time.time())
