@@ -299,31 +299,36 @@ svg .f{fill:currentColor;stroke:none}
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),inset 0 1px 0 rgba(255,255,255,.18),0 40px 80px -30px rgba(0,0,0,.8)}
 
 /* demo "cut" (animata da DEMOS.cut.run in home.js) */
+.dm-stage{position:relative;height:150px}
+.dm-tl{position:absolute;inset:0;will-change:opacity,transform,filter}
 .dm-row{display:flex;align-items:center;justify-content:space-between;height:26px}
 .dm-lbl{font-size:13px;color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
-.dm-x{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.1);color:#fff;min-width:44px;text-align:center}
-.dm-wave{position:relative;display:flex;align-items:center;height:92px;margin:16px 0 14px;opacity:calc(1 - var(--out,0))}
-.seg{--p:0;--flash:0;--gone:0;flex-basis:0;flex-shrink:1;min-width:0;height:100%;display:flex;align-items:center;justify-content:space-around;position:relative;overflow:hidden;border-radius:8px;
-  -webkit-mask-image:linear-gradient(90deg,#000 calc(var(--p) * 100%),rgba(0,0,0,.38) calc(var(--p) * 100%));mask-image:linear-gradient(90deg,#000 calc(var(--p) * 100%),rgba(0,0,0,.38) calc(var(--p) * 100%))}
-.seg i{flex:none;width:3px;border-radius:3px;background:#fff;transform:scaleY(0);will-change:transform}
-.seg.sil{-webkit-mask-image:none;mask-image:none;background:rgba(255,80,80,calc(var(--flash) * .28));box-shadow:inset 0 0 0 1px rgba(255,90,90,calc(var(--flash) * .7))}
-.seg.sil i{background:rgba(255,255,255,.35);opacity:calc(1 - var(--gone))}
-.seg.sil b{position:absolute;left:50%;top:6px;translate:-50% 0;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#ff8f8f;opacity:var(--flash);white-space:nowrap}
-.dm-head{position:absolute;left:0;top:-6px;bottom:-6px;width:2px;margin-left:-1px;border-radius:2px;background:#fff;box-shadow:0 0 12px rgba(160,190,255,.9),0 0 2px #fff;opacity:0;will-change:transform}
-.dm-bot{display:flex;align-items:baseline;gap:12px}
-.dm-time{font-size:44px;font-weight:700;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums}
-.dm-save{font-size:15px;font-weight:700;color:#7fe0a5;opacity:0;transform:translateY(6px) scale(.9);transition:opacity .25s,transform .45s cubic-bezier(.3,1.5,.5,1)}
-.dm-cut.done .dm-save{opacity:1;transform:none}
-.dm-cut.done .dm-time{color:#fff;text-shadow:0 0 24px rgba(127,224,165,.35)}
-.dm-time{transition:text-shadow .4s}
+.dm-r{display:flex;align-items:center;gap:10px}
+.dm-time{font-size:13px;font-weight:600;color:#fff;font-variant-numeric:tabular-nums;min-width:48px;text-align:right}
+.dm-x{display:inline-block;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.1);color:#fff;min-width:40px;text-align:center}
+.dm-cv{display:block;width:100%;height:112px;margin-top:10px}
+.dm-defs{position:absolute;width:0;height:0}
+.dm-morph{position:absolute;inset:0;display:grid;place-items:center}
+.dm-morph.mf{filter:url(#dmMorph)}
+.dm-cmp,.dm-sv{grid-area:1/1;display:flex;align-items:center;justify-content:center}
+.dm-cmp{gap:14px;opacity:1}
+.dm-cmp b{display:flex;align-items:baseline;gap:4px;font-size:50px;font-weight:700;letter-spacing:-.045em;line-height:1;font-variant-numeric:tabular-nums;opacity:0;will-change:transform,opacity,filter}
+.dm-cmp small,.dm-sv small{font-size:.36em;font-weight:600;letter-spacing:0;color:var(--muted)}
+.dm-a{color:rgba(255,255,255,.55)}
+.dm-arr{width:30px;height:30px;fill:none;stroke:rgba(255,255,255,.7);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;opacity:0}
+.dm-sv{flex-direction:column;gap:6px;opacity:0;will-change:transform,opacity,filter}
+.dm-sv small{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:rgba(127,224,165,.75)}
+.dm-sv b{font-size:52px;font-weight:700;letter-spacing:-.045em;line-height:1;color:#7fe0a5;text-shadow:0 0 34px rgba(127,224,165,.35);font-variant-numeric:tabular-nums;white-space:nowrap}
 
 @media (max-width:1020px){.s-demo{display:none}}
 @media (max-width:760px){
   .s-demo{display:block;top:22px;left:20px;right:20px;width:auto;transform:none}
   .slide.cur .s-demo{animation:copyIn .9s .1s var(--e-out) both}
   .dm{padding:16px 18px 14px}
-  .dm-wave{height:70px;margin:12px 0 10px}
-  .dm-time{font-size:34px}
+  .dm-stage{height:128px}
+  .dm-cv{height:92px}
+  .dm-cmp b{font-size:38px}
+  .dm-sv b{font-size:40px}
   .s-copy{justify-content:flex-end}
   .s-copy h3{font-size:34px;margin:14px 0 10px}
   .s-copy p{font-size:14.5px}

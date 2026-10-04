@@ -208,73 +208,120 @@ const easeIO = t => t <= 0 ? 0 : t >= 1 ? 1 : t < .5 ? 4 * t * t * t : 1 - Math.
 const clock = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
   return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
 const DEMOS = {
-  // la testina scorre la lezione: ogni pausa si accende e sparisce, il tempo scende e la velocità sale
+  /* "cut": una vera forma d'onda da timeline. La testina la scorre, le parti piatte (pause) si accendono
+     e si chiudono lentamente, poi la timeline sparisce: prima → dopo in grande, e infine i minuti risparmiati. */
   cut: {
-    segs: [[9, 0], [3, 1], [7, 0], [4, 1], [11, 0], [2, 1], [6, 0], [3, 1], [8, 0]],
+    segs: [[9, 0], [3, 1], [7, 0], [4, 1], [11, 0], [2.5, 1], [6, 0], [3.5, 1], [8, 0]],
+    from: 92, mid: 58, to: 29,
     html() {
-      let seed = 11; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
-      const wave = this.segs.map(([w, sil]) => `<div class="seg${sil ? ' sil' : ''}" style="flex-grow:${w}">${Array.from({ length: Math.round(w * 1.5) }, () =>
-        `<i style="height:${sil ? 5 + rnd() * 5 : 26 + rnd() * 74}%"></i>`).join('')}${sil ? '<b>pausa</b>' : ''}</div>`).join('');
-      return `<div class="dm dm-cut">
-        <div class="dm-row"><span class="dm-lbl">Lezione originale</span><span class="dm-x">1×</span></div>
-        <div class="dm-wave">${wave}<span class="dm-head"></span></div>
-        <div class="dm-bot"><span class="dm-time">1:32:10</span><span class="dm-save">−68%</span></div>
-      </div>`;
+      return `<div class="dm dm-cut"><div class="dm-stage">
+        <div class="dm-tl">
+          <div class="dm-row"><span class="dm-lbl">Lezione originale</span><span class="dm-r"><span class="dm-time">${this.from} min</span><span class="dm-x">1×</span></span></div>
+          <canvas class="dm-cv"></canvas>
+        </div>
+        <svg class="dm-defs" aria-hidden="true"><filter id="dmMorph"><feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 22 -9"/></filter></svg>
+        <div class="dm-morph">
+          <div class="dm-cmp"><b class="dm-a">${this.from}<small>min</small></b><svg class="dm-arr" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></svg><b class="dm-b">${this.to}<small>min</small></b></div>
+          <div class="dm-sv"><small>Risparmiati</small><b>${this.from - this.to} minuti</b></div>
+        </div>
+      </div></div>`;
     },
     run(root) {
-      const segEls = [...root.querySelectorAll('.seg')], bars = [...root.querySelectorAll('.seg i')], wave = root.querySelector('.dm-wave');
-      const head = root.querySelector('.dm-head'), lbl = root.querySelector('.dm-lbl'), chip = root.querySelector('.dm-x');
-      const time = root.querySelector('.dm-time'), save = root.querySelector('.dm-save');
-      const W = this.segs.map(s => s[0]), SIL = this.segs.map(s => s[1]);
-      const SPEED = [1, 1, 1.5, 1.5, 2]; // velocità per ogni tratto parlato
-      // programma: entrata 350 ms, parlato ~1900 ms (accelera), ogni pausa si chiude in 220 ms, attesa, uscita
-      const plan = []; let t = 350, v = 0;
-      const units = W.map((w, i) => SIL[i] ? 0 : w / SPEED[this.segs.slice(0, i).filter(s => !s[1]).length]);
-      const k = 1900 / units.reduce((a, b) => a + b, 0);
-      W.forEach((w, i) => { const d = SIL[i] ? 220 : units[i] * k; plan.push({ i, t0: t, t1: t + d, sil: SIL[i], spd: SIL[i] ? null : SPEED[v] }); if (!SIL[i]) v++; t += d; });
-      const playEnd = t, HOLD = 950, OUT = 320, CYCLE = playEnd + HOLD + OUT;
-      const T0 = 5530, T1 = 1760; let raf = 0, t0 = 0, lastSpd = 0, lastCut = -1, lastCyc = 0;
-      const phase = bars.map((_, j) => j * 1.7);
-      const set = (el, txt) => { if (el.textContent !== txt) el.textContent = txt; };
-      const pop = el => el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.22)' }, { transform: 'scale(1)' }], { duration: 320, easing: 'cubic-bezier(.3,1.6,.5,1)' });
-      function frame(now) {
-        const c = (now - t0) % CYCLE, cyc = Math.floor((now - t0) / CYCLE);
-        if (cyc !== lastCyc) { lastCyc = cyc; lastSpd = 0; lastCut = -1; }
-        const out = c > playEnd + HOLD ? easeIO((c - playEnd - HOLD) / OUT) : 0;
-        root.style.setProperty('--out', out.toFixed(3));
-        // pause: si accendono di rosso e si chiudono
-        let cuts = 0, cur = plan[0], spd = 1, prog = 0;
-        for (const p of plan) {
-          const q = Math.max(0, Math.min(1, (c - p.t0) / (p.t1 - p.t0)));
-          if (p.sil) {
-            const e = easeIO(q); segEls[p.i].style.flexGrow = (W[p.i] * (1 - e)).toFixed(3);
-            segEls[p.i].style.setProperty('--flash', Math.sin(Math.PI * Math.min(1, q * 1.4)).toFixed(3));
-            segEls[p.i].style.setProperty('--gone', e.toFixed(3));
-            if (q >= 1) cuts++;
-          } else { segEls[p.i].style.setProperty('--p', q.toFixed(3)); if (c >= p.t0) spd = p.spd; }
-          if (c >= p.t0 && c < p.t1) { cur = p; prog = q; }
+      const self = this, cv = root.querySelector('.dm-cv'), ctx = cv.getContext('2d');
+      const tl = root.querySelector('.dm-tl'), lbl = root.querySelector('.dm-lbl'), chip = root.querySelector('.dm-x'), time = root.querySelector('.dm-time');
+      const morph = root.querySelector('.dm-morph'), cmp = root.querySelector('.dm-cmp'), sv = root.querySelector('.dm-sv');
+      const cA = root.querySelector('.dm-a'), cArr = root.querySelector('.dm-arr'), cB = root.querySelector('.dm-b');
+      const SEG = this.segs, U = SEG.reduce((a, s) => a + s[0], 0);
+      // campioni della forma d'onda: parlato = sillabe con inviluppo, pausa = quasi piatta
+      let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+      const PER = 14, amp = [], starts = [];
+      let u = 0;
+      SEG.forEach(([w, sil]) => { starts.push(u); const n = Math.round(w * PER);
+        let syl = 0, len = 0, peak = 0;
+        for (let k = 0; k < n; k++) {
+          if (sil) { amp.push(.025 + rnd() * .03); continue; }
+          if (syl >= len) { syl = 0; len = 4 + Math.floor(rnd() * 7); peak = .35 + rnd() * .65; }
+          const env = Math.sin(Math.PI * (syl + .5) / len) ** .8, edge = Math.min(1, k / 3, (n - 1 - k) / 3 + .2);
+          amp.push(Math.max(.04, peak * env * (.55 + rnd() * .45) * edge)); syl++;
         }
-        if (c >= playEnd) { cur = plan[plan.length - 1]; prog = 1; }
+        u += w; });
+      const ampAt = (i, f) => { const s0 = Math.round(starts[i] * PER), n = Math.round(SEG[i][0] * PER); return amp[s0 + Math.min(n - 1, Math.floor(f * n))]; };
+      // tempi (ms)
+      const IN = 450, SCAN = 2700, S0 = IN, S1 = IN + SCAN, CUT = 820, SPD0 = S1 + 120, SPD1 = SPD0 + 520,
+        TLO0 = SPD1 + 260, TLO1 = TLO0 + 380, B0 = TLO1 - 120, M0 = B0 + 1650, M1 = M0 + 750, OUT0 = M1 + 1700, CYCLE = OUT0 + 420;
+      const uAt = c => U * Math.max(0, Math.min(1, (c - S0) / SCAN));
+      const cutT = SEG.map((s, i) => s[1] ? S0 + SCAN * (starts[i] + s[0]) / U + 60 : 0); // la pausa si chiude dopo che la testina l'ha passata
+      const clamp = x => Math.max(0, Math.min(1, x)), set = (el, t) => { if (el.textContent !== t) el.textContent = t; };
+      const pop = el => el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.25)' }, { transform: 'scale(1)' }], { duration: 380, easing: 'cubic-bezier(.3,1.6,.5,1)' });
+      let raf = 0, t0 = 0, W = 0, H = 0, dpr = 1, lastCyc = -1, lastChip = '';
+      const fit = () => { dpr = Math.min(2, devicePixelRatio || 1); const w = cv.clientWidth, h = cv.clientHeight;
+        if (w && (w !== W || h !== H)) { W = w; H = h; cv.width = w * dpr; cv.height = h * dpr; } };
+      const style = (el, o, y = 0, blur = 0, sc = 1) => { el.style.opacity = o.toFixed(3); el.style.transform = `translateY(${y.toFixed(1)}px) scale(${sc.toFixed(3)})`; el.style.filter = blur > .05 ? `blur(${blur.toFixed(1)}px)` : ''; };
+      function draw(c) {
+        fit(); if (!W) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+        const cuts = SEG.map((s, i) => s[1] ? easeIO((c - cutT[i]) / CUT) : 0);
+        const spd = easeIO((c - SPD0) / (SPD1 - SPD0)), sx = 1 - .5 * spd;               // a 2× la timeline si dimezza
+        const px = W / U * sx, reveal = ease((c) / IN), uh = uAt(c), mid = H / 2 + 6;
+        // layout attuale
+        const xs = []; let x = 0; SEG.forEach((s, i) => { xs.push(x); x += s[0] * px * (1 - cuts[i]); }); const total = x;
+        ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(0, mid - .5, total * reveal, 1);
+        SEG.forEach(([w, sil], i) => {
+          const ws = w * px * (1 - cuts[i]); if (ws < .3) return;
+          const x0 = xs[i], seen = clamp((uh - starts[i]) / w), gone = cuts[i];
+          if (sil) { // pausa: si illumina mentre la testina la attraversa, poi si chiude
+            const glow = clamp(seen * 1.6) * (1 - gone);
+            if (glow > .01) {
+              ctx.fillStyle = `rgba(255,86,86,${(.2 * glow).toFixed(3)})`; ctx.strokeStyle = `rgba(255,110,110,${(.65 * glow).toFixed(3)})`;
+              ctx.beginPath(); ctx.roundRect(x0 + .5, 14.5, Math.max(0, ws - 1), H - 15, 7); ctx.fill(); ctx.stroke();
+              if (ws > 22) { ctx.fillStyle = `rgba(255,150,150,${glow.toFixed(3)})`; ctx.font = '700 9.5px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.fillText('PAUSA', x0 + ws / 2, 9); }
+            }
+          }
+          const step = 1.5, hgt = (H - 22) / 2;
+          for (let p = 0; p < ws; p += step) {
+            const gx = x0 + p; if (gx > W * reveal) break;
+            const a = ampAt(i, p / ws) * hgt, played = starts[i] + w * (p / ws) <= uh;
+            ctx.fillStyle = sil ? (played ? `rgba(255,140,140,${(.9 - gone * .6).toFixed(3)})` : 'rgba(255,255,255,.3)') : played ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.34)';
+            ctx.fillRect(gx, mid - a, 1.1, a * 2 || 1);
+          }
+        });
         // testina
-        const se = segEls[cur.i], x = se.offsetLeft + se.offsetWidth * (cur.sil ? 0 : prog);
-        head.style.transform = `translateX(${x.toFixed(1)}px)`;
-        head.style.opacity = c < 300 ? 0 : c > playEnd ? Math.max(0, 1 - (c - playEnd) / 260) : 1;
-        // barre: entrano a onda e "parlano" più veloci quando sale la velocità
-        const tt = now / 1000;
-        bars.forEach((b, j) => { const inn = ease((c - j * 4) / 320); const beat = 0.82 + 0.18 * Math.sin(tt * 9 * spd + phase[j]);
-          b.style.transform = `scaleY(${(inn * (c > 300 ? beat : 1) * (1 - out * .9)).toFixed(3)})`; });
-        // testi
-        if (spd !== lastSpd) { lastSpd = spd; set(chip, `${String(spd).replace('.', ',')}×`); if (c > 400) pop(chip); }
-        if (cuts !== lastCut) { lastCut = cuts; set(lbl, cuts ? `${cuts} paus${cuts === 1 ? 'a tolta' : 'e tolte'}` : 'Lezione originale'); }
-        const g = Math.min(1, Math.max(0, (c - 350) / (playEnd - 350))); // lineare: il tempo scende costante con la testina
-        set(time, clock(T0 + (T1 - T0) * g));
-        root.classList.toggle('done', c >= playEnd && c < playEnd + HOLD + OUT * .5);
+        if (c > S0 - 100 && c < SPD0) {
+          let i = SEG.findIndex((s, k) => uh < starts[k] + s[0]); if (i < 0) i = SEG.length - 1;
+          const hx = xs[i] + SEG[i][0] * px * (1 - cuts[i]) * clamp((uh - starts[i]) / SEG[i][0]);
+          const o = clamp((c - S0 + 100) / 150) * (1 - clamp((c - S1) / 120));
+          ctx.save(); ctx.globalAlpha = o; ctx.shadowColor = 'rgba(160,190,255,.95)'; ctx.shadowBlur = 12; ctx.fillStyle = '#fff';
+          ctx.fillRect(Math.min(hx, total) - 1, 12, 2, H - 12); ctx.restore();
+        }
+        return { cuts, spd };
+      }
+      function frame(now) {
+        const T = now - t0, c = T % CYCLE, cyc = Math.floor(T / CYCLE);
+        if (cyc !== lastCyc) { lastCyc = cyc; lastChip = ''; }
+        const st = draw(c) || { cuts: SEG.map(() => 0), spd: 0 };
+        // intestazione: pause tolte e minuti che scendono man mano
+        const nCut = st.cuts.filter(x => x >= 1).length, cutF = st.cuts.reduce((a, x) => a + x, 0) / 4;
+        set(lbl, nCut ? `${nCut} paus${nCut === 1 ? 'a tolta' : 'e tolte'}` : 'Lezione originale');
+        const mins = self.from - (self.from - self.mid) * cutF - (self.mid - self.to) * st.spd;
+        set(time, `${Math.round(mins)} min`);
+        const ch = st.spd > .02 ? '2×' : '1×'; if (ch !== lastChip) { if (lastChip) pop(chip); lastChip = ch; set(chip, ch); }
+        // 1) la timeline sparisce
+        const tlo = easeIO((c - TLO0) / (TLO1 - TLO0)), tin = ease(c / 300);
+        style(tl, tin * (1 - tlo), -10 * tlo, 6 * tlo, 1 - .04 * tlo);
+        // 2) prima → dopo, in grande (entrata veloce a cascata)
+        const bIn = k => ease((c - B0 - k * 110) / 380), mOut = easeIO((c - M0) / (M1 - M0) * 1.35);
+        [cA, cArr, cB].forEach((el, k) => { const e = bIn(k); style(el, e, 14 * (1 - e), 4 * (1 - e)); });
+        // 3) dissolvenza + morphing nei minuti risparmiati (filtro a soglia sul contenitore)
+        const mIn = easeIO((c - M0 - 180) / (M1 - M0 - 180)), out = easeIO((c - OUT0) / 380);
+        cmp.style.opacity = (1 - mOut).toFixed(3); cmp.style.filter = mOut > .01 ? `blur(${(mOut * 12).toFixed(1)}px)` : '';
+        style(sv, mIn * (1 - out), 0, (1 - mIn) * 12 + out * 6, .9 + .1 * mIn);
+        const morphing = c > M0 && c < M1 + 60; if (morph.classList.contains('mf') !== morphing) morph.classList.toggle('mf', morphing);
+        root.classList.toggle('saved', mIn > .5);
         raf = requestAnimationFrame(frame);
       }
-      const final = () => { segEls.forEach((e, i) => { if (SIL[i]) { e.style.flexGrow = 0; e.style.setProperty('--gone', 1); } else e.style.setProperty('--p', 1); });
-        bars.forEach(b => b.style.transform = 'scaleY(1)'); set(time, clock(T1)); set(chip, '2×'); set(lbl, '4 pause tolte'); root.classList.add('done'); };
+      const final = () => { tl.style.opacity = 0; cmp.style.opacity = 0; sv.style.opacity = 1; root.classList.add('saved'); };
       return {
-        start() { if (raf) return; if (reduce) return final(); t0 = performance.now(); lastSpd = 0; lastCut = -1; raf = requestAnimationFrame(frame); },
+        start() { if (raf) return; if (reduce) return final(); t0 = performance.now(); lastCyc = -1; raf = requestAnimationFrame(frame); },
         stop() { cancelAnimationFrame(raf); raf = 0; },
       };
     },
