@@ -199,236 +199,217 @@ addEventListener('keydown', e => {
 });
 addEventListener('pageshow', e => { if (e.persisted) { pal.hidden = true; document.documentElement.classList.remove('lock'); hs.classList.remove('lift'); ns.classList.remove('lift'); } });
 
-/* ---------------------------------------------------------------- carosello */
-// in evidenza: i tool con "featured" nel tool.json (al massimo 6)
-/* demo animate per le copertine: "featured.demo" nel tool.json sceglie quale usare.
-   html() crea il markup, run(el) lo anima e restituisce { start, stop }. */
-const ease = t => t <= 0 ? 0 : t >= 1 ? 1 : 1 - Math.pow(1 - t, 3);
-const easeIO = t => t <= 0 ? 0 : t >= 1 ? 1 : t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+/* ---------------------------------------------------------------- vetrina a schermo intero */
+// un "film" per ogni tool con "featured" nel tool.json. featured.demo sceglie il film da FILMS;
+// senza film si usa quello generico (logo, titolo, pulsante). Ogni film è una funzione del tempo:
+// render(ms) disegna lo stato esatto di quell'istante, così riparte, si ferma e si salta senza sorprese.
+const clamp = x => x < 0 ? 0 : x > 1 ? 1 : x;
+const ease = t => 1 - Math.pow(1 - clamp(t), 3);
+const easeIO = t => { t = clamp(t); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+const expoIO = t => { t = clamp(t); return t === 0 || t === 1 ? t : t < .5 ? Math.pow(2, 20 * t - 10) / 2 : (2 - Math.pow(2, -20 * t + 10)) / 2; };
+const span = (t, a, b) => clamp((t - a) / (b - a));
 const clock = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
   return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
-const DEMOS = {
-  /* "cut": una vera forma d'onda da timeline. La testina la scorre, le parti piatte (pause) si accendono
-     e si chiudono lentamente, poi la timeline sparisce: prima → dopo in grande, e infine i minuti risparmiati. */
+const css = (el, o, { x = 0, y = 0, s = 1, blur = 0 } = {}) => {
+  el.style.opacity = o.toFixed(3); el.style.visibility = o < .002 ? 'hidden' : '';
+  el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) scale(${s.toFixed(4)})`;
+  el.style.filter = blur > .05 ? `blur(${blur.toFixed(1)}px)` : '';
+};
+const setT = (el, t) => { if (el.textContent !== t) el.textContent = t; };
+
+// logo iniziale e finale (comune a tutti i film)
+const logoHtml = (t, f) => `
+  <div class="sh-logo"><span class="sh-ic">${icon(t)}</span><span class="sh-name">${esc(t.name)}</span></div>
+  <div class="sh-end"><h2>${esc(f.headline || t.name)}</h2><p>${esc(f.sub || t.desc)}</p>
+    <div class="sh-act"><a class="btn btn-p" href="${t.url}"${ext(t)} data-tool="${t.id}">Apri ${esc(t.name)}${svg('arrow')}</a>
+    <button class="btn btn-s sh-replay" type="button">Rivedi</button></div></div>`;
+function logoScenes(root, t0, t1) {
+  // t0: fine del logo iniziale · t1: inizio del finale
+  const logo = root.querySelector('.sh-logo'), ic = root.querySelector('.sh-ic'), nm = root.querySelector('.sh-name'), end = root.querySelector('.sh-end');
+  const endKids = [...end.children];
+  return t => {
+    const inn = ease(span(t, 150, 950)), out = easeIO(span(t, t0 - 500, t0));
+    const fin = ease(span(t, t1, t1 + 900));
+    if (t < t1) {
+      css(logo, inn * (1 - out), { y: -40 * out, s: (.86 + .14 * inn) * (1 + .5 * out), blur: 14 * (1 - inn) + 18 * out });
+      css(ic, 1, { s: .7 + .3 * ease(span(t, 150, 1100)) }); css(nm, ease(span(t, 450, 1150)), { y: 14 * (1 - ease(span(t, 450, 1150))) });
+    } else {
+      css(logo, fin, { y: -root.clientHeight * .15 * easeIO(span(t, t1 + 600, t1 + 1500)), s: .9 + .1 * fin, blur: 10 * (1 - fin) });
+      css(ic, 1, { s: 1 }); css(nm, 1);
+    }
+    endKids.forEach((k, i) => { const e = ease(span(t, t1 + 950 + i * 130, t1 + 1650 + i * 130)); css(k, e, { y: 22 * (1 - e), blur: 6 * (1 - e) }); });
+    end.style.pointerEvents = t > t1 + 1000 ? 'auto' : 'none';
+  };
+}
+
+const FILMS = {
+  // StudyCut: video a schermo intero → si allontana → la traccia audio viene elaborata e accorciata
+  //           → 92 min → 29 min → "Risparmiati 63 minuti" → logo
   cut: {
-    segs: [[9, 0], [3, 1], [7, 0], [4, 1], [11, 0], [2.5, 1], [6, 0], [3.5, 1], [8, 0]],
-    from: 92, mid: 58, to: 29,
-    html() {
-      return `<div class="dm dm-cut"><div class="dm-stage">
-        <div class="dm-tl">
-          <div class="dm-row"><span class="dm-lbl">Lezione originale</span><span class="dm-r"><span class="dm-time">${this.from} min</span><span class="dm-x">1×</span></span></div>
-          <canvas class="dm-cv"></canvas>
+    length: 18400,
+    from: 92 * 60 + 10, mid: 58 * 60 + 40, to: 29 * 60 + 20,
+    segs: [[8, 0], [3.2, 1], [6, 0], [4.2, 1], [9, 0], [2.6, 1], [5, 0], [3.6, 1], [7, 0], [2.4, 1], [5.5, 0]],
+    html(t, f) {
+      const m = s => Math.round(s / 60);
+      return `${logoHtml(t, f)}
+      <div class="sh-ed">
+        <div class="sh-vid">
+          <div class="sv-scene">
+            <div class="sv-board"><b>Analisi Matematica II</b><small>Lezione 14 · Integrali doppi</small>
+              <div class="sv-math"><i style="width:62%"></i><i style="width:44%"></i><i style="width:71%"></i><i style="width:38%"></i></div></div>
+            <svg class="sv-prof" viewBox="0 0 100 120"><circle cx="50" cy="34" r="19"/><path d="M12 120c2-34 18-52 38-52s36 18 38 52z"/></svg>
+            <div class="sv-cap">…quindi l’integrale si spezza in due parti</div>
+          </div>
+          <div class="sv-bar"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg><span class="sv-cur">12:04</span><span class="sv-prog"><i></i></span><span class="sv-tot">${clock(this.from)}</span><span class="sv-x">1×</span></div>
+          <div class="sv-badge">${tIcon(t)}<span>Elaborazione</span><b>0%</b></div>
         </div>
-        <svg class="dm-defs" aria-hidden="true"><filter id="dmMorph"><feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 22 -9"/></filter></svg>
-        <div class="dm-morph">
-          <div class="dm-cmp"><b class="dm-a">${this.from}<small>min</small></b><svg class="dm-arr" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></svg><b class="dm-b">${this.to}<small>min</small></b></div>
-          <div class="dm-sv"><small>Risparmiati</small><b>${this.from - this.to} minuti</b></div>
+        <div class="sh-trk">
+          <div class="st-row"><span class="st-l">Traccia audio</span><span class="st-r"><span class="st-n"></span><span class="st-t">${clock(this.from)}</span></span></div>
+          <canvas class="st-cv"></canvas>
         </div>
-      </div></div>`;
+      </div>
+      <svg class="sh-defs" aria-hidden="true"><filter id="shMorph"><feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 18 -5"/></filter></svg>
+      <div class="sh-num">
+        <div class="sh-cmp"><b class="sn-a">${m(this.from)}<small>min</small></b>
+          <svg class="sn-arr" viewBox="0 0 48 24"><path pathLength="1" d="M3 12h40M34 4l9 8-9 8"/></svg>
+          <b class="sn-b">${m(this.to)}<small>min</small></b></div>
+        <div class="sh-sv"><small>Risparmiati</small><b>${m(this.from) - m(this.to)} minuti</b></div>
+      </div>`;
     },
-    run(root) {
-      const self = this, cv = root.querySelector('.dm-cv'), ctx = cv.getContext('2d');
-      const tl = root.querySelector('.dm-tl'), lbl = root.querySelector('.dm-lbl'), chip = root.querySelector('.dm-x'), time = root.querySelector('.dm-time');
-      const morph = root.querySelector('.dm-morph'), cmp = root.querySelector('.dm-cmp'), sv = root.querySelector('.dm-sv');
-      const cA = root.querySelector('.dm-a'), cArr = root.querySelector('.dm-arr'), cB = root.querySelector('.dm-b');
-      const SEG = this.segs, U = SEG.reduce((a, s) => a + s[0], 0);
-      // campioni della forma d'onda: parlato = sillabe con inviluppo, pausa = quasi piatta
-      let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
-      const PER = 14, amp = [], starts = [];
-      let u = 0;
-      SEG.forEach(([w, sil]) => { starts.push(u); const n = Math.round(w * PER);
-        let syl = 0, len = 0, peak = 0;
+    mount(root) {
+      const F = this, q = s => root.querySelector(s), SEG = F.segs, U = SEG.reduce((a, s) => a + s[0], 0);
+      const ed = q('.sh-ed'), vid = q('.sh-vid'), scene = q('.sv-scene'), trk = q('.sh-trk'), cv = q('.st-cv'), ctx = cv.getContext('2d');
+      const vCur = q('.sv-cur'), vTot = q('.sv-tot'), vProg = q('.sv-prog i'), vX = q('.sv-x'), badge = q('.sv-badge'), bPct = q('.sv-badge b'), bTxt = q('.sv-badge span');
+      const stN = q('.st-n'), stT = q('.st-t'), stL = q('.st-l'), num = q('.sh-num'), cmp = q('.sh-cmp'), sv = q('.sh-sv');
+      const nA = q('.sn-a'), nArr = q('.sn-arr'), nB = q('.sn-b'), arrP = q('.sn-arr path');
+      // forma d'onda: parlato a sillabe, pause quasi piatte
+      let seed = 5; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+      const PER = 22, amp = [], starts = []; let u = 0;
+      SEG.forEach(([w, sil]) => { starts.push(u); const n = Math.round(w * PER); let k2 = 0, len = 0, pk = 0;
         for (let k = 0; k < n; k++) {
-          if (sil) { amp.push(.025 + rnd() * .03); continue; }
-          if (syl >= len) { syl = 0; len = 4 + Math.floor(rnd() * 7); peak = .35 + rnd() * .65; }
-          const env = Math.sin(Math.PI * (syl + .5) / len) ** .8, edge = Math.min(1, k / 3, (n - 1 - k) / 3 + .2);
-          amp.push(Math.max(.04, peak * env * (.55 + rnd() * .45) * edge)); syl++;
-        }
-        u += w; });
+          if (sil) { amp.push(.02 + rnd() * .025); continue; }
+          if (k2 >= len) { k2 = 0; len = 5 + Math.floor(rnd() * 9); pk = .3 + rnd() * .7; }
+          const env = Math.pow(Math.sin(Math.PI * (k2 + .5) / len), .7), edge = Math.min(1, (k + 1) / 4, (n - k) / 4);
+          amp.push(Math.max(.035, pk * env * (.6 + rnd() * .4) * edge)); k2++;
+        } u += w; });
       const ampAt = (i, f) => { const s0 = Math.round(starts[i] * PER), n = Math.round(SEG[i][0] * PER); return amp[s0 + Math.min(n - 1, Math.floor(f * n))]; };
       // tempi (ms)
-      const IN = 450, SCAN = 2700, S0 = IN, S1 = IN + SCAN, CUT = 820, SPD0 = S1 + 120, SPD1 = SPD0 + 520,
-        TLO0 = SPD1 + 260, TLO1 = TLO0 + 380, B0 = TLO1 - 120, M0 = B0 + 1650, M1 = M0 + 750, OUT0 = M1 + 1700, CYCLE = OUT0 + 420;
-      const uAt = c => U * Math.max(0, Math.min(1, (c - S0) / SCAN));
-      const cutT = SEG.map((s, i) => s[1] ? S0 + SCAN * (starts[i] + s[0]) / U + 60 : 0); // la pausa si chiude dopo che la testina l'ha passata
-      const clamp = x => Math.max(0, Math.min(1, x)), set = (el, t) => { if (el.textContent !== t) el.textContent = t; };
-      const pop = el => el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.25)' }, { transform: 'scale(1)' }], { duration: 380, easing: 'cubic-bezier(.3,1.6,.5,1)' });
-      let raf = 0, t0 = 0, W = 0, H = 0, dpr = 1, lastCyc = -1, lastChip = '';
-      const fit = () => { dpr = Math.min(2, devicePixelRatio || 1); const w = cv.clientWidth, h = cv.clientHeight;
-        if (w && (w !== W || h !== H)) { W = w; H = h; cv.width = w * dpr; cv.height = h * dpr; } };
-      const style = (el, o, y = 0, blur = 0, sc = 1) => { el.style.opacity = o.toFixed(3); el.style.transform = `translateY(${y.toFixed(1)}px) scale(${sc.toFixed(3)})`; el.style.filter = blur > .05 ? `blur(${blur.toFixed(1)}px)` : ''; };
-      function draw(c) {
-        fit(); if (!W) return;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-        const cuts = SEG.map((s, i) => s[1] ? easeIO((c - cutT[i]) / CUT) : 0);
-        const spd = easeIO((c - SPD0) / (SPD1 - SPD0)), sx = 1 - .5 * spd;               // a 2× la timeline si dimezza
-        const px = W / U * sx, reveal = ease((c) / IN), uh = uAt(c), mid = H / 2 + 6;
-        // layout attuale
-        const xs = []; let x = 0; SEG.forEach((s, i) => { xs.push(x); x += s[0] * px * (1 - cuts[i]); }); const total = x;
-        ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(0, mid - .5, total * reveal, 1);
+      const LOGO_END = 2000, V_IN = 1650, DZ0 = 2700, DZ1 = 4100, TR0 = 3500, SC0 = 4500, SC1 = 8100, CUT = 1000,
+        SP0 = 8500, SP1 = 9300, EX0 = 9800, EX1 = 10500, NB = 10300, MO0 = 12300, MO1 = 13200, SVOUT = 14500, END = 14700;
+      const cutAt = SEG.map((s, i) => s[1] ? SC0 + (SC1 - SC0) * (starts[i] + s[0]) / U + 80 : 0);
+      const logo = logoScenes(root, LOGO_END, END);
+      // geometria: il video parte grande quanto la sezione e si allontana fino al suo posto
+      let geo = null, W = 0, H = 0, dpr = 1;
+      const measure = () => { vid.style.transform = 'none'; const r = vid.getBoundingClientRect(), R = root.getBoundingClientRect();
+        const s = R.height > R.width ? R.width / r.width : Math.max(R.width / r.width, R.height / r.height) * 1.02; // in verticale non ritaglia troppo
+        geo = { s, dx: R.left + R.width / 2 - (r.left + r.width / 2), dy: R.top + R.height / 2 - (r.top + r.height / 2) };
+        dpr = Math.min(2, devicePixelRatio || 1); W = cv.clientWidth; H = cv.clientHeight; cv.width = W * dpr; cv.height = H * dpr; };
+      addEventListener('resize', () => { geo = null; });
+      function wave(t) {
+        if (!W) return; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+        const cuts = SEG.map((s, i) => s[1] ? easeIO((t - cutAt[i]) / CUT) : 0), spd = expoIO(span(t, SP0, SP1));
+        const px = W / U * (1 - .5 * spd), reveal = easeIO(span(t, TR0 + 200, TR0 + 1100)), uh = U * span(t, SC0, SC1), mid = H / 2 + 8, hgt = (H - 30) / 2;
+        let tot = 0; const xs = SEG.map((s, i) => { const x = tot; tot += s[0] * px * (1 - cuts[i]); return x; });
+        const off = (W - tot) / 2; // la traccia resta centrata mentre si accorcia
+        ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(off, mid - .5, tot * reveal, 1);
         SEG.forEach(([w, sil], i) => {
-          const ws = w * px * (1 - cuts[i]); if (ws < .3) return;
-          const x0 = xs[i], seen = clamp((uh - starts[i]) / w), gone = cuts[i];
-          if (sil) { // pausa: si illumina mentre la testina la attraversa, poi si chiude
-            const glow = clamp(seen * 1.6) * (1 - gone);
+          const ws = w * px * (1 - cuts[i]); if (ws < .3) return; const x0 = off + xs[i], gone = cuts[i];
+          if (sil) {
+            const seen = clamp((uh - starts[i]) / w), glow = clamp(seen * 1.5) * (1 - gone);
             if (glow > .01) {
-              ctx.fillStyle = `rgba(255,86,86,${(.2 * glow).toFixed(3)})`; ctx.strokeStyle = `rgba(255,110,110,${(.65 * glow).toFixed(3)})`;
-              ctx.beginPath(); ctx.roundRect(x0 + .5, 14.5, Math.max(0, ws - 1), H - 15, 7); ctx.fill(); ctx.stroke();
-              if (ws > 22) { ctx.fillStyle = `rgba(255,150,150,${glow.toFixed(3)})`; ctx.font = '700 9.5px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.fillText('PAUSA', x0 + ws / 2, 9); }
+              ctx.fillStyle = `rgba(255,80,80,${(.16 * glow).toFixed(3)})`; ctx.strokeStyle = `rgba(255,110,110,${(.6 * glow).toFixed(3)})`;
+              ctx.beginPath(); ctx.roundRect(x0 + .5, 20.5, Math.max(0, ws - 1), H - 22, 8); ctx.fill(); ctx.stroke();
+              if (ws > 40) { ctx.fillStyle = `rgba(255,150,150,${glow.toFixed(3)})`; ctx.font = '700 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.fillText('PAUSA', x0 + ws / 2, 13); }
             }
           }
-          const step = 1.5, hgt = (H - 22) / 2;
-          for (let p = 0; p < ws; p += step) {
-            const gx = x0 + p; if (gx > W * reveal) break;
-            const a = ampAt(i, p / ws) * hgt, played = starts[i] + w * (p / ws) <= uh;
-            ctx.fillStyle = sil ? (played ? `rgba(255,140,140,${(.9 - gone * .6).toFixed(3)})` : 'rgba(255,255,255,.3)') : played ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.34)';
-            ctx.fillRect(gx, mid - a, 1.1, a * 2 || 1);
+          for (let p = 0; p < ws; p += 2) {
+            const gx = x0 + p; if (gx - off > W * reveal) break;
+            const a = ampAt(i, p / ws) * hgt, done = starts[i] + w * (p / ws) <= uh;
+            ctx.fillStyle = sil ? (done ? `rgba(255,130,130,${(.9 - .6 * gone).toFixed(3)})` : 'rgba(255,255,255,.3)') : done ? '#fff' : 'rgba(255,255,255,.38)';
+            ctx.fillRect(gx, mid - a, 1.25, Math.max(1, a * 2));
           }
         });
-        // testina
-        if (c > S0 - 100 && c < SPD0) {
+        // fascio di analisi
+        const bo = span(t, SC0 - 150, SC0) * (1 - span(t, SC1, SC1 + 200));
+        if (bo > 0) {
           let i = SEG.findIndex((s, k) => uh < starts[k] + s[0]); if (i < 0) i = SEG.length - 1;
-          const hx = xs[i] + SEG[i][0] * px * (1 - cuts[i]) * clamp((uh - starts[i]) / SEG[i][0]);
-          const o = clamp((c - S0 + 100) / 150) * (1 - clamp((c - S1) / 120));
-          ctx.save(); ctx.globalAlpha = o; ctx.shadowColor = 'rgba(160,190,255,.95)'; ctx.shadowBlur = 12; ctx.fillStyle = '#fff';
-          ctx.fillRect(Math.min(hx, total) - 1, 12, 2, H - 12); ctx.restore();
+          const hx = off + xs[i] + SEG[i][0] * px * (1 - cuts[i]) * clamp((uh - starts[i]) / SEG[i][0]);
+          const g = ctx.createLinearGradient(hx - 70, 0, hx, 0); g.addColorStop(0, 'rgba(120,160,255,0)'); g.addColorStop(1, `rgba(120,160,255,${(.28 * bo).toFixed(3)})`);
+          ctx.fillStyle = g; ctx.fillRect(hx - 70, 18, 70, H - 18);
+          ctx.save(); ctx.globalAlpha = bo; ctx.shadowColor = 'rgba(160,190,255,1)'; ctx.shadowBlur = 16; ctx.fillStyle = '#fff'; ctx.fillRect(hx - 1, 16, 2, H - 16); ctx.restore();
         }
         return { cuts, spd };
       }
-      function frame(now) {
-        const T = now - t0, c = T % CYCLE, cyc = Math.floor(T / CYCLE);
-        if (cyc !== lastCyc) { lastCyc = cyc; lastChip = ''; }
-        const st = draw(c) || { cuts: SEG.map(() => 0), spd: 0 };
-        // intestazione: pause tolte e minuti che scendono man mano
-        const nCut = st.cuts.filter(x => x >= 1).length, cutF = st.cuts.reduce((a, x) => a + x, 0) / 4;
-        set(lbl, nCut ? `${nCut} paus${nCut === 1 ? 'a tolta' : 'e tolte'}` : 'Lezione originale');
-        const mins = self.from - (self.from - self.mid) * cutF - (self.mid - self.to) * st.spd;
-        set(time, `${Math.round(mins)} min`);
-        const ch = st.spd > .02 ? '2×' : '1×'; if (ch !== lastChip) { if (lastChip) pop(chip); lastChip = ch; set(chip, ch); }
-        // 1) la timeline sparisce
-        const tlo = easeIO((c - TLO0) / (TLO1 - TLO0)), tin = ease(c / 300);
-        style(tl, tin * (1 - tlo), -10 * tlo, 6 * tlo, 1 - .04 * tlo);
-        // 2) prima → dopo, in grande (entrata veloce a cascata)
-        const bIn = k => ease((c - B0 - k * 110) / 380), mOut = easeIO((c - M0) / (M1 - M0) * 1.35);
-        [cA, cArr, cB].forEach((el, k) => { const e = bIn(k); style(el, e, 14 * (1 - e), 4 * (1 - e)); });
-        // 3) dissolvenza + morphing nei minuti risparmiati (filtro a soglia sul contenitore)
-        const mIn = easeIO((c - M0 - 180) / (M1 - M0 - 180)), out = easeIO((c - OUT0) / 380);
-        cmp.style.opacity = (1 - mOut).toFixed(3); cmp.style.filter = mOut > .01 ? `blur(${(mOut * 12).toFixed(1)}px)` : '';
-        style(sv, mIn * (1 - out), 0, (1 - mIn) * 12 + out * 6, .9 + .1 * mIn);
-        const morphing = c > M0 && c < M1 + 60; if (morph.classList.contains('mf') !== morphing) morph.classList.toggle('mf', morphing);
-        root.classList.toggle('saved', mIn > .5);
-        raf = requestAnimationFrame(frame);
-      }
-      const final = () => { tl.style.opacity = 0; cmp.style.opacity = 0; sv.style.opacity = 1; root.classList.add('saved'); };
-      return {
-        start() { if (raf) return; if (reduce) return final(); t0 = performance.now(); lastCyc = -1; raf = requestAnimationFrame(frame); },
-        stop() { cancelAnimationFrame(raf); raf = 0; },
+      return t => {
+        if (!geo) measure();
+        logo(t);
+        // 1) video a schermo intero che si allontana
+        const vin = ease(span(t, V_IN, V_IN + 700)), dz = expoIO(span(t, DZ0, DZ1)), k = 1 - dz;
+        const ex = easeIO(span(t, EX0, EX1));
+        css(ed, 1 - ex, { s: 1 - .06 * ex, y: -20 * ex, blur: 12 * ex });
+        css(vid, vin, { x: geo.dx * k, y: geo.dy * k, s: (1 + (geo.s - 1) * k) * (1.05 - .05 * vin) });
+        vid.style.borderRadius = (18 * dz).toFixed(1) + 'px';
+        scene.style.transform = `scale(${(1.08 - .08 * span(t, V_IN, DZ1)).toFixed(4)})`; // leggero movimento di camera
+        // 2) traccia audio ed elaborazione
+        const tin = ease(span(t, TR0, TR0 + 800)); css(trk, tin, { y: 40 * (1 - tin) });
+        const st = wave(t) || { cuts: SEG.map(() => 0), spd: 0 };
+        const nSil = SEG.filter(s => s[1]).length, nCut = st.cuts.filter(c => c >= 1).length;
+        const cutF = st.cuts.reduce((a, c) => a + c, 0) / nSil, dur = F.from - (F.from - F.mid) * cutF - (F.mid - F.to) * st.spd;
+        setT(stT, clock(dur)); setT(vTot, clock(dur));
+        setT(stN, nCut ? `${nCut} paus${nCut === 1 ? 'a tolta' : 'e tolte'}` : '');
+        setT(vX, st.spd > .05 ? '2×' : '1×'); vX.classList.toggle('on', st.spd > .05);
+        const pct = Math.round(100 * (.85 * span(t, SC0, SC1) + .15 * span(t, SP0, SP1)));
+        setT(bPct, t > SP1 ? '✓' : pct + '%'); setT(bTxt, t > SP1 ? 'Fatto' : t > SC1 ? 'Velocità 2×' : 'Elaborazione');
+        badge.classList.toggle('ok', t > SP1); stL.classList.toggle('busy', t > SC0 && t < SP1);
+        const bIn = ease(span(t, SC0 - 300, SC0 + 200)); css(badge, bIn, { y: -10 * (1 - bIn) });
+        const play = span(t, V_IN, SC0); setT(vCur, clock(724 + play * 40));
+        vProg.style.transform = `scaleX(${(.13 + .02 * play).toFixed(4)})`;
+        // 3) prima → dopo, in grande
+        [nA, nArr, nB].forEach((el, i) => { const e = ease(span(t, NB + i * 160, NB + 520 + i * 160)); css(el, e, { y: 30 * (1 - e), blur: 10 * (1 - e) }); });
+        arrP.style.strokeDashoffset = (1 - easeIO(span(t, NB + 160, NB + 760))).toFixed(3);
+        // 4) dissolvenza + morphing nei minuti risparmiati
+        const mo = easeIO(span(t, MO0, MO0 + 700)), mi = easeIO(span(t, MO0 + 120, MO1)), so = easeIO(span(t, SVOUT, SVOUT + 450));
+        cmp.style.opacity = (1 - mo).toFixed(3); cmp.style.filter = mo > .01 ? `blur(${(9 * mo).toFixed(1)}px)` : '';
+        css(sv, mi * (1 - so), { s: (.92 + .08 * mi) * (1 - .06 * so), blur: 9 * (1 - mi) + 10 * so, y: -24 * so });
+        num.classList.toggle('mf', t > MO0 && t < MO1 + 60);
+        num.style.visibility = t > NB - 50 && t < SVOUT + 500 ? 'visible' : 'hidden';
       };
     },
   },
 };
-const FEAT = TOOLS.filter(t => t.featured).slice(0, 6).map(t => ({ id: t.id, fx: 'shapes', ...t.featured }));
-if (!FEAT.length) $('.feat').hidden = true;
-if (FEAT.length < 2) { $('.car-nav').hidden = true; $('#tabs').hidden = true; }
-$('#tabs').style.setProperty('--n', Math.max(FEAT.length, 1));
-const car = $('#car'), track = $('#track');
-track.innerHTML = FEAT.map((f, i) => { const t = TOOL[f.id], c = CAT[t.cat];
-  const demo = f.demoHtml || (DEMOS[f.demo] ? DEMOS[f.demo].html() : '');
-  return `<article class="slide${demo ? ' has-demo' : ''}" data-i="${i}" style="--cc:${c.c}" aria-label="${esc(t.name)}">
-    <canvas></canvas>
-    <div class="s-copy">
-      <div class="s-top">${icon(t)}<span class="s-name">${esc(t.name)}</span></div>
-      <h3>${esc(f.headline || t.name)}</h3>
-      <p>${esc(f.sub || t.desc)}</p>
-      <div class="s-act"><a class="btn btn-p" href="${t.url}"${ext(t)} data-tool="${t.id}">Apri ${esc(t.name)}${svg('arrow')}</a></div>
-    </div>
-    ${demo ? `<div class="s-demo">${demo}</div>` : ''}
-  </article>`; }).join('');
-$('#tabs').innerHTML = FEAT.map((f, i) => `<button class="tab" role="tab" data-i="${i}" aria-label="${esc(TOOL[f.id].name)}"><i></i><span class="tn">${tIcon(TOOL[f.id])}${esc(TOOL[f.id].name)}</span><small>${esc(CAT[TOOL[f.id].cat].name)}</small></button>`).join('');
-const slides = $$('.slide'), tabs = $$('.tab'), N = slides.length;
-const demos = slides.map((s, i) => { const d = DEMOS[FEAT[i].demo], el = s.querySelector('.dm'); return d && d.run && el ? d.run(el) : null; });
-// effetti WebGL: uno per slide, acceso solo quello visibile
-const fx = slides.map((s, i) => {
-  const f = FEAT[i], cv = s.querySelector('canvas');
-  if (!window.FX) return null;
-  if (f.fx === 'waves') return FX.waves(cv, { mouseInteraction: true, ...f.preset });
-  if (f.fx === 'topo') return FX.topo && FX.topo(cv, f.preset);
-  if (f.fx === 'slats') return FX.slats && FX.slats(cv, f.preset);
-  if (f.fx === 'tunnel') return FX.tunnel && FX.tunnel(cv, { ...f.preset,
-    center: (W, H) => { const m = Math.min(W, H); return isMob() ? [0, (.5 - .24) * H / m] : innerWidth <= 1020 ? [.2 * W / m, 0] : [(.73 - .5) * W / m, 0]; } });
-  if (!FX.shapes) return null;
-  return FX.shapes(cv, { text: TOOL[f.id].name, ...f.preset, splashRadius: 46, splashStrength: .5, introDuration: 1.3, fontWeight: 700,
-    textBox: () => { const W = cv.clientWidth, H = cv.clientHeight;
-      return isMob() ? { cx: W / 2, cy: H * .2, w: W * .95, h: H * .34 } : W < 1000 * .97 && innerWidth <= 1020 ? { cx: W * .74, cy: H * .5, w: W * .48, h: H * .6 } : { cx: W * .73, cy: H * .5, w: W * .5, h: H * .62 }; } });
+// film generico: logo → titolo → pulsante
+const GENERIC = { length: 7000, html: (t, f) => logoHtml(t, f), mount(root) { const l = logoScenes(root, 2000, 2000); return t => l(t); } };
+
+const FEAT = TOOLS.filter(t => t.featured).map(t => ({ id: t.id, ...t.featured }));
+const shows = FEAT.map(f => {
+  const t = TOOL[f.id], film = FILMS[f.demo] || GENERIC;
+  const sec = document.createElement('section'); sec.className = 'show'; sec.style.setProperty('--cc', CAT[t.cat].c); sec.setAttribute('aria-label', t.name);
+  sec.innerHTML = `<canvas class="sh-bg" aria-hidden="true"></canvas><div class="sh-vig"></div><div class="sh-film">${film.html(t, f)}</div><div class="sh-prog"><i></i></div>`;
+  $('main').append(sec);
+  const root = sec.querySelector('.sh-film'), render = film.mount(root), bar = sec.querySelector('.sh-prog i'), L = film.length;
+  // sfondo WebGL dal tool.json (fx + preset), più visibile durante logo e finale
+  const cv = sec.querySelector('.sh-bg');
+  const bg = window.FX && (f.fx === 'tunnel' && FX.tunnel ? FX.tunnel(cv, { ...f.preset, center: () => [0, 0] })
+    : f.fx === 'topo' && FX.topo ? FX.topo(cv, f.preset) : f.fx === 'slats' && FX.slats ? FX.slats(cv, f.preset)
+    : f.fx === 'waves' && FX.waves ? FX.waves(cv, f.preset) : null);
+  let raf = 0, t0 = 0, on = false;
+  const draw = t => { render(t); bar.style.transform = `scaleX(${(t / L).toFixed(4)})`;
+    const lo = t < 2300 ? .85 : t > L - 4000 ? .85 : .16; cv.style.opacity = lo; };
+  const frame = () => { const t = performance.now() - t0;
+    if (t >= L) { draw(L - 1); raf = 0; // resta sul finale, poi dissolve e ricomincia
+      idleT = setTimeout(() => { if (!on) return; root.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 500, easing: 'ease-in' }).onfinish = () => on && play(0); }, 3000); return; }
+    draw(t); raf = requestAnimationFrame(frame); };
+  let idleT = 0;
+  function play(from = 0) { cancelAnimationFrame(raf); clearTimeout(idleT); t0 = performance.now() - from; raf = requestAnimationFrame(frame); }
+  function pause() { cancelAnimationFrame(raf); raf = 0; clearTimeout(idleT); }
+  sec.querySelector('.sh-replay').onclick = () => play(0);
+  if (reduce) { draw(L - 1); return; }
+  draw(0);
+  new IntersectionObserver(es => { const vis = es[0].isIntersecting && !document.hidden;
+    if (vis && !on) { on = true; play(0); bg && bg.start(); } else if (!vis && on) { on = false; pause(); bg && bg.stop(); } }, { threshold: .55 }).observe(sec);
+  return { sec, pause };
 });
-let cur = 0, prevO = slides.map(() => 0), carVisible = true;
-function layout(jump = false) {
-  slides.forEach((s, i) => {
-    let o = ((i - cur) % N + N) % N; if (o > N / 2) o -= N;
-    const big = Math.abs(o - prevO[i]) > 1;
-    if (big || jump) s.classList.add('jump');
-    s.style.setProperty('--o', o); s.style.setProperty('--s', o ? .9 : 1); s.style.setProperty('--op', Math.abs(o) <= 1 ? 1 : 0);
-    s.classList.toggle('cur', o === 0); s.setAttribute('aria-hidden', o !== 0); s.inert = o !== 0;
-    prevO[i] = o;
-    if (big || jump) { void s.offsetWidth; requestAnimationFrame(() => s.classList.remove('jump')); }
-  });
-  tabs.forEach((t, i) => { t.classList.toggle('on', i === cur); t.setAttribute('aria-selected', i === cur); t.style.setProperty('--p', 0); });
-  runFx();
-}
-let fxTimers = [];
-function runFx() {
-  fxTimers.forEach(clearTimeout); fxTimers = [];
-  fx.forEach((f, i) => { if (!f) return;
-    if (i === cur && carVisible) { f.relayout && f.relayout(); f.start(); }
-    else fxTimers.push(setTimeout(() => f.stop(), 800)); });
-  demos.forEach((d, i) => d && (i === cur && carVisible && !document.hidden ? d.start() : d.stop()));
-}
-document.addEventListener('visibilitychange', () => runFx());
-function go(i) { if (!N) return; cur = (i + N) % N; layout(); restartAuto(); }
-$('#prev').onclick = () => go(cur - 1); $('#next').onclick = () => go(cur + 1);
-tabs.forEach(t => t.onclick = () => go(+t.dataset.i));
-car.addEventListener('keydown', e => { if (e.key === 'ArrowRight') go(cur + 1); if (e.key === 'ArrowLeft') go(cur - 1); });
-slides.forEach((s, i) => s.addEventListener('click', e => { if (moved) { e.preventDefault(); e.stopPropagation(); return; } if (i !== cur) { e.preventDefault(); go(i); } }, true));
-// trascinamento
-let drag = null, moved = false;
-car.addEventListener('pointerdown', e => {
-  if (e.button > 0 || e.target.closest('a,button')) { moved = false; if (e.pointerType === 'mouse') return; }
-  drag = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, on: false, dx: 0, lx: e.clientX, lt: performance.now(), v: 0 }; moved = false;
-});
-addEventListener('pointermove', e => {
-  if (!drag || e.pointerId !== drag.id) return;
-  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-  if (!drag.on) { if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) { drag.on = true; moved = true; car.classList.add('dragging'); pauseAuto(true); } else if (Math.abs(dy) > 10) { drag = null; return; } else return; }
-  const now = performance.now(); drag.v = (e.clientX - drag.lx) / Math.max(1, now - drag.lt); drag.lx = e.clientX; drag.lt = now;
-  drag.dx = dx; car.style.setProperty('--drag', `${dx}px`);
-});
-const dragEnd = () => {
-  if (!drag) return; const d = drag; drag = null; if (!d.on) return;
-  car.classList.remove('dragging'); car.style.setProperty('--drag', '0px'); pauseAuto(false);
-  const w = slides[0].offsetWidth;
-  if (d.dx < -w * .18 || d.v < -.45) go(cur + 1); else if (d.dx > w * .18 || d.v > .45) go(cur - 1); else layout();
-  setTimeout(() => { moved = false; }, 50);
-};
-addEventListener('pointerup', dragEnd); addEventListener('pointercancel', dragEnd);
-// autoplay con avanzamento nella tab
-const DUR = 7000; let autoT0 = performance.now(), autoPaused = 0, hoverPause = false, pausedAt = 0;
-function restartAuto() { autoT0 = performance.now(); }
-function pauseAuto(on) { if (on) { if (!pausedAt) pausedAt = performance.now(); } else if (pausedAt) { autoT0 += performance.now() - pausedAt; pausedAt = 0; } }
-car.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') { hoverPause = true; pauseAuto(true); } });
-car.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { hoverPause = false; pauseAuto(false); } });
-(function tick() {
-  const stop = reduce || document.hidden || !carVisible || !pal.hidden;
-  if (stop && !pausedAt) pauseAuto(true); else if (!stop && !hoverPause && !drag && pausedAt) pauseAuto(false);
-  if (N < 2) return;
-  const p = Math.min(1, ((pausedAt || performance.now()) - autoT0) / DUR);
-  tabs[cur].style.setProperty('--p', p.toFixed(4));
-  if (p >= 1) go(cur + 1);
-  requestAnimationFrame(tick);
-})();
-new IntersectionObserver(es => { carVisible = es[0].isIntersecting; runFx(); }, { threshold: .15 }).observe(car);
-if (N) layout(true);
-// disegna subito un fotogramma anche per le slide laterali
-fx.forEach((f, i) => { if (f && i !== cur) { f.start(); setTimeout(() => i !== cur && f.stop(), 250 + i * 60); } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) shows.forEach(s => s.pause()); });
 
 /* sfondo dell'hero */
 const heroFx = window.FX && FX.shapes($('#heroFx'), { color: '#1f1f23', hoverColor: '#d8d8dc', backgroundColor: '#000000', cellSize: 12, brightness: .3, fade: .4, splashRadius: 60, splashStrength: .45 });

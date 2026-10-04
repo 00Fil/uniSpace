@@ -28,7 +28,7 @@ Internet → Traefik (Dokploy, HTTPS) → gateway:80 ─┬─ /            home
 
 - Solo il **gateway** ha un dominio. I tool non sono raggiungibili da fuori, solo attraverso il gateway, sulla rete interna `hub`.
 - Ogni tool è una cartella `tools/<id>/` con un file **`tool.json`**. Durante la build il gateway li legge tutti e genera:
-  - `tools.json`, l'elenco che la home usa per card, ricerca, categorie e carosello;
+  - `tools.json`, l'elenco che la home usa per card, ricerca, categorie e vetrina animata;
   - una rotta Caddy `/<id>/` per ogni tool.
 - Quindi la home **non va mai modificata** per aggiungere un tool.
 
@@ -151,17 +151,16 @@ Regole per i tool con server:
   "description": "…",
   "tags": ["TXT", "PDF"],       // compaiono nella card e diventano filtri di ricerca
   "keywords": "domande test simulazione esame",
-  "featured": {                 // facoltativo: copertina nel carosello "In evidenza" (massimo 6)
-    "headline": "Le lezioni, senza pause.",   // cosa fa, in poche parole: è il titolo grande
+  "featured": {                 // facoltativo: animazione a schermo intero nella home, sotto la ricerca
+    "headline": "Le lezioni, senza pause.",   // titolo del finale, sotto il logo
     "sub": "Toglie i silenzi e la fa scorrere fino a 3×.",
-    "demo": "cut",              // animazione a destra, dall'oggetto DEMOS in home/home.js
-    "demoHtml": "<div class=\"dm\">…</div>",  // in alternativa: HTML personalizzato
-    "fx": "shapes",             // sfondo: shapes | tunnel | topo | slats | waves
-    "preset": { "text": "QUIZ", "color": "#2a1f4a", "hoverColor": "#c784ff" }
+    "demo": "cut",              // il "film" da FILMS in home/home.js (senza: logo + titolo + pulsante)
+    "fx": "tunnel",             // sfondo: tunnel | topo | slats | waves (facoltativo)
+    "preset": { "cableColor": "#3d6ff5" }     // opzioni dello sfondo
   }
 }
 ```
-I nomi delle icone disponibili sono nell'oggetto `I` in `home/home.js`. Per una nuova animazione di copertina aggiungi una funzione a `DEMOS` nello stesso file e i relativi stili in fondo a `home/home.css` (la demo `cut` è un esempio completo).
+I nomi delle icone disponibili sono nell'oggetto `I` in `home/home.js`. Ogni tool con `featured` ha la sua sezione a schermo intero: parte quando è visibile, si ferma quando esce e alla fine resta sul logo con il pulsante Apri. Per un film nuovo aggiungi una voce a `FILMS` in `home/home.js` (`length`, `html()`, `mount()` che restituisce `render(ms)`) e gli stili in fondo a `home/home.css`; il film `cut` di StudyCut è un esempio completo.
 Se un `tool.json` contiene un errore, la build del gateway si ferma con un messaggio chiaro e il sito già online resta com'è.
 
 Per provare la generazione prima del push:
