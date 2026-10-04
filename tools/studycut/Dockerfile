@@ -7,7 +7,9 @@ RUN apt-get update \
 COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 
 RUN useradd --uid 1000 --create-home app \
- && python -m venv /opt/venv && chown -R app:app /opt/venv
+ && python -m venv /opt/venv \
+ && mkdir -p /app/library /app/secrets \
+ && chown -R app:app /opt/venv /app
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -23,9 +25,9 @@ WORKDIR /app
 COPY --chown=app:app requirements.docker.txt ./
 USER app
 RUN pip install --no-cache-dir -r requirements.docker.txt
-COPY --chown=app:app server.py entrypoint.sh ./
+COPY --chown=app:app server.py ./
+COPY --chown=app:app --chmod=755 entrypoint.sh ./
 COPY --chown=app:app static/ static/
-RUN mkdir -p library secrets && chmod +x entrypoint.sh
 
 EXPOSE 8765
 VOLUME ["/app/library"]
