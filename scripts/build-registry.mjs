@@ -39,14 +39,14 @@ for (const dir of fs.readdirSync(toolsDir, { withFileTypes: true })) {
   let route = `# ${t.name} (${type})\nredir /${t.id} ${p} 308\n`;
   if (type === 'service') {
     if (!/^[\w.-]+:\d+$/.test(t.upstream || '')) fail(`${file}: "upstream" obbligatorio per i service (es. "mio-tool:8000")`);
-    route += `handle_path ${p}* {\n` +
+    route += `handle_path ${p}* {\n\timport login\n` +
       (t.maxUpload ? `\trequest_body {\n\t\tmax_size ${t.maxUpload}\n\t}\n` : '') +
       `\treverse_proxy ${t.upstream} {\n\t\tflush_interval -1\n\t}\n}\n`;
   } else if (type === 'static') {
     const pub = path.join(toolsDir, t.id, 'public');
     if (!fs.existsSync(path.join(pub, 'index.html'))) fail(`${t.id}: i tool statici devono avere public/index.html`);
     fs.cpSync(pub, path.join(outDir, 'static', t.id), { recursive: true });
-    route += `handle_path ${p}* {\n\troot * /srv/tools/${t.id}\n\tfile_server\n}\n`;
+    route += `handle_path ${p}* {\n\timport login\n\troot * /srv/tools/${t.id}\n\tfile_server\n}\n`;
   } else {
     if (!/^https?:\/\//.test(t.url || '')) fail(`${file}: "url" obbligatorio per i link`);
     route = '';

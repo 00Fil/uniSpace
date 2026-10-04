@@ -57,6 +57,9 @@ def init_db():
       created REAL NOT NULL, seen REAL NOT NULL, expires REAL NOT NULL, agent TEXT);
     CREATE INDEX IF NOT EXISTS s_uid ON sessions(uid);
     """)
+    cols = [r[1] for r in db().execute("PRAGMA table_info(sessions)")]
+    if "keep" not in cols:  # database creato da una versione precedente
+        db().execute("ALTER TABLE sessions ADD COLUMN keep INTEGER NOT NULL DEFAULT 1")
 
 
 def hash_pw(pw, salt=None):
@@ -77,16 +80,29 @@ def quota_of(u):
     return int(u["quota"]) if u["quota"] else int(QUOTA_GB * (1 << 30))
 
 
-def usage(uid):
-    total, root = 0, USERS_ROOT / uid
-    if root.is_dir():
-        for dp, _, files in os.walk(root):
-            for f in files:
-                try:
-                    total += os.lstat(os.path.join(dp, f)).st_size
-                except OSError:
-                    pass
+def dir_size(root):
+    total = 0
+    for dp, _, files in os.walk(root):
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(dp, f)).st_size
+            except OSError:
+                pass
     return total
+
+
+def usage(uid, detail=False):
+    """Spazio occupato dall'utente; con detail=True anche quanto per ogni tool (una cartella per tool)."""
+    root = USERS_ROOT / uid
+    parts = {}
+    if root.is_dir():
+        for e in os.scandir(root):
+            try:
+                parts[e.name] = dir_size(e.path) if e.is_dir(follow_symlinks=False) else e.stat(follow_symlinks=False).st_size
+            except OSError:
+                pass
+    total = sum(parts.values())
+    return (total, parts) if detail else total
 
 
 def create_user(name, pw):
@@ -99,22 +115,27 @@ def tok_hash(t):
     return hashlib.sha256(t.encode()).hexdigest()
 
 
-def new_session(uid, agent):
+def life(keep):
+    """Durata della sessione: SESSION_DAYS se "Resta connesso", altrimenti 12 ore (e cookie di sessione)."""
+    return SESSION_DAYS * 86400 if keep else 12 * 3600
+
+
+def new_session(uid, agent, keep=True):
     t = secrets.token_urlsafe(32)
     now = time.time()
-    db().execute("INSERT INTO sessions VALUES(?,?,?,?,?,?)",
-                 (tok_hash(t), uid, now, now, now + SESSION_DAYS * 86400, (agent or "")[:200]))
+    db().execute("INSERT INTO sessions(token,uid,created,seen,expires,agent,keep) VALUES(?,?,?,?,?,?,?)",
+                 (tok_hash(t), uid, now, now, now + life(keep), (agent or "")[:200], 1 if keep else 0))
     return t
 
 
 def session_user(token):
     if not token:
         return None
-    r = db().execute("SELECT u.*, s.seen, s.token AS th FROM sessions s JOIN users u ON u.id=s.uid "
+    r = db().execute("SELECT u.*, s.seen, s.keep, s.token AS th FROM sessions s JOIN users u ON u.id=s.uid "
                      "WHERE s.token=? AND s.expires>?", (tok_hash(token), time.time())).fetchone()
-    if r and time.time() - r["seen"] > 3600:  # scadenza che scorre: si rinnova usandola
+    if r and time.time() - r["seen"] > 600:  # scadenza che scorre: si rinnova usandola
         now = time.time()
-        db().execute("UPDATE sessions SET seen=?, expires=? WHERE token=?", (now, now + SESSION_DAYS * 86400, r["th"]))
+        db().execute("UPDATE sessions SET seen=?, expires=? WHERE token=?", (now, now + life(r["keep"]), r["th"]))
     return r
 
 
@@ -139,6 +160,8 @@ def failed(*keys):
 # ---------------------------------------------------------------- http
 CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
           ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml"}
+# i file statici (tranne le pagine) possono stare in cache un po': badge.js e' incluso da tutti i tool
+CACHE = {".html": "no-store"}
 
 
 class H(BaseHTTPRequestHandler):
@@ -148,11 +171,11 @@ class H(BaseHTTPRequestHandler):
         pass
 
     # ---- utilità
-    def send(self, code, body=b"", ctype="application/json; charset=utf-8", headers=()):
+    def send(self, code, body=b"", ctype="application/json; charset=utf-8", headers=(), cache="no-store"):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         for k, v in headers:
             self.send_header(k, v)
         self.end_headers()
@@ -175,8 +198,10 @@ class H(BaseHTTPRequestHandler):
     def secure(self):
         return (self.headers.get("X-Forwarded-Proto") or "").lower() == "https"
 
-    def set_cookie(self, token, max_age):
-        flags = f"Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}" + ("; Secure" if self.secure() else "")
+    def set_cookie(self, token, max_age=None):
+        # max_age None = cookie di sessione: sparisce quando si chiude il browser
+        flags = "Path=/; HttpOnly; SameSite=Lax" + (f"; Max-Age={max_age}" if max_age is not None else "") \
+            + ("; Secure" if self.secure() else "")
         return ("Set-Cookie", f"{COOKIE}={token}; {flags}")
 
     def ip(self):
@@ -195,7 +220,8 @@ class H(BaseHTTPRequestHandler):
         p = STATIC / name
         if not p.is_file():
             return self.err("Non trovato", 404)
-        self.send(200, p.read_bytes(), CTYPES.get(p.suffix, "application/octet-stream"))
+        self.send(200, p.read_bytes(), CTYPES.get(p.suffix, "application/octet-stream"),
+                  cache=CACHE.get(p.suffix, "public, max-age=300"))
 
     # ---- GET
     def do_GET(self):
@@ -203,11 +229,16 @@ class H(BaseHTTPRequestHandler):
         path = u.path.rstrip("/") or "/"
         if path == "/auth/verify":
             return self.verify()
-        if path in ("/account", "/account/login"):
+        if path == "/account/login":
             # chi ha gia' una sessione valida va direttamente dove voleva andare
             if session_user(self.cookie()):
                 return self.send(302, headers=[("Location", safe_next(parse_qs(u.query).get("next", ["/"])[0]))])
             return self.static("login.html")
+        if path in ("/account", "/account/profile"):
+            # profilo: nome, spazio usato (anche per tool), password, sessioni
+            if not session_user(self.cookie()):
+                return self.send(302, headers=[("Location", "/account/login?next=" + quote(self.path, safe=""))])
+            return self.static("profile.html")
         m = re.match(r"^/account/([\w-]+\.(?:css|js|svg))$", path)
         if m:
             return self.static(m[1])
@@ -215,8 +246,10 @@ class H(BaseHTTPRequestHandler):
             usr = session_user(self.cookie())
             if not usr:
                 return self.err("Accesso richiesto", 401)
-            return self.json({"id": usr["id"], "name": usr["name"], "quota": quota_of(usr), "used": usage(usr["id"]),
-                              "created": usr["created"]})
+            used, parts = usage(usr["id"], True)
+            n = db().execute("SELECT COUNT(*) FROM sessions WHERE uid=? AND expires>?", (usr["id"], time.time())).fetchone()[0]
+            return self.json({"id": usr["id"], "name": usr["name"], "quota": quota_of(usr), "used": used,
+                              "tools": parts, "sessions": n, "created": usr["created"]})
         if path == "/account/api/config":
             return self.json({"signup": SIGNUP != "closed", "code": bool(SIGNUP_CODE), "quota": int(QUOTA_GB * (1 << 30))})
         if path == "/healthz":
@@ -252,8 +285,14 @@ class H(BaseHTTPRequestHandler):
             if t:
                 db().execute("DELETE FROM sessions WHERE token=?", (tok_hash(t),))
             return self.json({"ok": True}, headers=[self.set_cookie("", 0)])
+        if path == "/account/api/logout-all":
+            usr = session_user(self.cookie())
+            if usr:
+                db().execute("DELETE FROM sessions WHERE uid=?", (usr["id"],))
+            return self.json({"ok": True}, headers=[self.set_cookie("", 0)])
         name = str(data.get("name") or "").strip().lower()
         pw = str(data.get("password") or "")
+        keep = data.get("remember", True) is not False
         if path == "/account/api/login":
             if limited("ip:" + self.ip(), "u:" + name):
                 return self.err("Troppi tentativi: riprova tra qualche minuto", 429)
@@ -263,8 +302,8 @@ class H(BaseHTTPRequestHandler):
                     check_pw(pw, hash_pw("x"))  # stesso tempo anche se il nome non esiste
                 failed("ip:" + self.ip(), "u:" + name)
                 return self.err("Nome utente o password non corretti", 401)
-            t = new_session(r["id"], self.headers.get("User-Agent"))
-            return self.json({"ok": True, "name": r["name"]}, headers=[self.set_cookie(t, SESSION_DAYS * 86400)])
+            t = new_session(r["id"], self.headers.get("User-Agent"), keep)
+            return self.json({"ok": True, "name": r["name"]}, headers=[self.set_cookie(t, life(True) if keep else None)])
         if path == "/account/api/signup":
             if SIGNUP == "closed":
                 return self.err("Le registrazioni sono chiuse", 403)
@@ -283,8 +322,8 @@ class H(BaseHTTPRequestHandler):
                 uid = create_user(name, pw)
             except sqlite3.IntegrityError:
                 return self.err("Questo nome utente esiste già", 409)
-            t = new_session(uid, self.headers.get("User-Agent"))
-            return self.json({"ok": True, "name": name}, headers=[self.set_cookie(t, SESSION_DAYS * 86400)])
+            t = new_session(uid, self.headers.get("User-Agent"), keep)
+            return self.json({"ok": True, "name": name}, headers=[self.set_cookie(t, life(True) if keep else None)])
         if path == "/account/api/password":
             usr = session_user(self.cookie())
             if not usr:

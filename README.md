@@ -22,9 +22,9 @@ studykit/
 ## Come funziona
 
 ```
-Internet → Traefik (Dokploy, HTTPS) → gateway:80 ─┬─ /account/    → account:8000   (pubblico: accesso)
+Internet → Traefik (Dokploy, HTTPS) → gateway:80 ─┬─ /            home                (pubblica)
+                                                  ├─ /account/    → account:8000      (accesso, profilo)
                                                   │   ── da qui in giù serve aver fatto l'accesso ──
-                                                  ├─ /            home
                                                   ├─ /studycut/   → studycut:8765
                                                   └─ /<tool>/     → altri tool
 ```
@@ -37,12 +37,16 @@ Internet → Traefik (Dokploy, HTTPS) → gateway:80 ─┬─ /account/    → 
 
 ## Account e spazio personale
 
-Senza account non si apre niente: né la home né i tool. Chi non ha fatto l'accesso finisce su `/account/login` e, dopo, torna alla pagina che voleva.
+La home è pubblica: chiunque vede i tool. Per **aprire** un tool serve l'accesso: chi non è entrato finisce su `/account/login` e, dopo, torna al tool che voleva. Nella home, in alto a destra, c'è **Accedi** oppure il menu dell'account.
 
-- **Un account per tutti i tool.** Il servizio `account` tiene utenti e sessioni (SQLite nel volume `account-data`). La sessione è un cookie `HttpOnly` che dura 30 giorni e si rinnova usandola. Le password sono salvate con scrypt; dopo 10 tentativi sbagliati in 15 minuti l'accesso si blocca per un po'.
+- **Pagina di accesso** (`/account/login`): form a sinistra (Accedi / Crea account, si passa dall'uno all'altro con il link in fondo), onde "silk" animate a destra che seguono il cursore. **Resta connesso** attivo = 30 giorni; disattivato = la sessione finisce chiudendo il browser (e al massimo dopo 12 ore).
+- **Profilo** (`/account/`): nome, spazio usato e quanto ne occupa ogni tool, cambio password, dispositivi connessi, Esci ed Esci da tutti i dispositivi. Ci si arriva dal menu della home, dal pulsante con l'iniziale in alto a destra in StudyCut o cliccando la barra "Il tuo spazio" nella libreria.
+- **In ogni tool:** basta una riga, `<script src="/account/badge.js" defer></script>`, per avere il pulsante dell'account (spazio usato, Profilo e spazio, Esci). I template di `new-tool.sh` lo hanno già.
+
+- **Un account per tutti i tool.** Il servizio `account` tiene utenti e sessioni (SQLite nel volume `account-data`). La sessione è un cookie `HttpOnly` che dura 30 giorni (con "Resta connesso") e si rinnova usandola. Le password sono salvate con scrypt; dopo 10 tentativi sbagliati in 15 minuti l'accesso si blocca per un po'.
 - **Come lo sanno i tool.** A ogni richiesta il gateway chiede ad `account` se la sessione è valida (`forward_auth`) e passa al tool `X-User-Id`, `X-User-Name` e `X-User-Quota`. Il gateway cancella sempre questi header se arrivano dal browser, quindi non si possono falsificare.
 - **File separati.** Ogni utente ha la sua cartella nel volume `userdata`: `/data/users/<id>/<tool>/`. StudyCut mostra, scarica e cancella solo i video di chi ha fatto l'accesso, e anche i lavori in corso sono separati.
-- **Limite di 2 GB per utente, uguale per tutti i tool.** Conta tutto quello che c'è in `/data/users/<id>/`. StudyCut lo controlla prima di un caricamento (anche il doppio temporaneo per i formati da convertire), durante un download da link e prima e durante un'esportazione: se finisce lo spazio si ferma e spiega quanto liberare. Lo spazio usato si vede in fondo alla libreria di StudyCut e nel menu dell'account in alto a destra nella home.
+- **Limite di 2 GB per utente, uguale per tutti i tool.** Conta tutto quello che c'è in `/data/users/<id>/`. StudyCut lo controlla prima di un caricamento (anche il doppio temporaneo per i formati da convertire), durante un download da link e prima e durante un'esportazione: se finisce lo spazio si ferma e spiega quanto liberare. Lo spazio usato si vede nel profilo (anche diviso per tool), in fondo alla libreria di StudyCut e nel menu dell'account della home.
 
 | Variabile | Default | A cosa serve |
 |---|---|---|
@@ -91,10 +95,11 @@ Scheda **Environment**: incolla il contenuto di `.env.example` (facoltativo: sen
 ### 5. Deploy
 Premi **Deploy**. La prima build richiede qualche minuto per ffmpeg e Deno. Quando è finita:
 
-- `https://uni.tuodominio.it` → pagina di accesso, poi la home
+- `https://uni.tuodominio.it` → la home (pubblica)
+- `https://uni.tuodominio.it/account/` → profilo (o accesso, se non sei entrato)
 - `https://uni.tuodominio.it/studycut/` → StudyCut
 
-Al primo accesso premi **Crea account**. Se vuoi che si registri solo chi conosci, imposta `SIGNUP_CODE` (o `SIGNUP=closed` e crei tu gli utenti).
+Apri un tool (o **Accedi** in alto a destra) e premi **Crea account**. Se vuoi che si registri solo chi conosci, imposta `SIGNUP_CODE` (o `SIGNUP=closed` e crei tu gli utenti).
 
 Con **Preview Compose** puoi vedere il file con le etichette Traefik che Dokploy aggiunge da solo.
 Per fare il deploy automatico a ogni push, attiva **Autodeploy** oppure usa il webhook della scheda **Deployments**.
@@ -169,7 +174,8 @@ Regole per i tool con server:
 - Il nome del servizio nel compose deve corrispondere a `upstream` nel `tool.json` (`quiz:8000`).
 - Il gateway toglie il prefisso `/quiz`, quindi il server riceve `/`, `/api/...` ecc.
 - Nel frontend usa sempre **percorsi relativi** (`fetch('api/x')`, `<script src="app.js">`), mai `/api/x`.
-- L'accesso lo controlla già il gateway: il tool riceve sempre `X-User-Id` (un id esadecimale), `X-User-Name` e `X-User-Quota` (byte). Se `X-User-Id` manca, rispondi 401.
+- L'accesso lo controlla già il gateway: il tool riceve sempre `X-User-Id` (un id esadecimale), `X-User-Name` e `X-User-Quota` (byte). Se `X-User-Id` manca, rispondi 401. Ogni rotta generata contiene `import login`, il controllo dell'accesso definito nel `Caddyfile`.
+- Per il pulsante dell'account (profilo, spazio, Esci) aggiungi `<script src="/account/badge.js" defer></script>`; resta in alto a destra, oppure va dentro un elemento con l'attributo `data-account`.
 - I file di un utente vanno in `/data/users/<X-User-Id>/<id-del-tool>/`, montando il volume `userdata` (vedi l'esempio commentato nel compose). Prima di salvare, controlla che tutta la cartella `/data/users/<X-User-Id>/` resti sotto `X-User-Quota`.
 
 ### `tool.json`

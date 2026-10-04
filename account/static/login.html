@@ -9,31 +9,37 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%227%22 fill=%22%23eee%22/%3E%3Cpath d=%22M7 7h4v4H7zM13 7h4v4h-4zM7 13h4v4H7zM13 13h4v4h-4z%22 fill=%22%23000%22/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/account/account.css">
 </head>
-<body>
-<main class="wrap">
-  <div class="brand"><span class="mark"><i></i><i></i><i></i><i></i></span>StudyKit</div>
-  <section class="card" aria-labelledby="ttl">
-    <h1 id="ttl">Bentornato</h1>
-    <p class="lead" id="lead">Un solo account per tutti i tool, con il tuo spazio personale.</p>
-    <div class="seg" role="tablist" id="seg"><span class="ind" id="ind"></span>
-      <button type="button" role="tab" class="on" data-m="login" aria-selected="true">Accedi</button>
-      <button type="button" role="tab" data-m="signup" aria-selected="false">Crea account</button>
+<body class="auth-page">
+<div class="auth">
+  <section class="side">
+    <a class="brand st" href="/"><span class="mark"><i></i><i></i><i></i><i></i></span>StudyKit</a>
+    <div class="box">
+      <h1 class="st" id="ttl">Bentornato</h1>
+      <p class="lead st" id="lead">Entra per usare i tool: un solo account per tutti, con il tuo spazio personale.</p>
+      <form id="f" novalidate>
+        <label class="fld st"><span>Nome utente</span>
+          <input id="name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="32" placeholder="es. mario.rossi"></label>
+        <label class="fld st"><span>Password</span>
+          <span class="pw"><input id="pw" name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200" placeholder="La tua password">
+          <button type="button" class="eye" id="eye" aria-label="Mostra password"><svg viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><path d="M12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z"/></svg></button></span></label>
+        <label class="fld st" id="codeF" hidden><span>Codice di invito</span>
+          <input id="code" name="code" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Te lo dà chi gestisce il sito"></label>
+        <p class="hint st" id="hint" hidden>Nome: lettere minuscole, numeri, punto, trattino e _. Password: almeno 8 caratteri.</p>
+        <label class="chk st"><input type="checkbox" id="keep" checked><span class="box-c"><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span>Resta connesso su questo dispositivo</span></label>
+        <p class="msg" id="msg" role="alert"></p>
+        <button class="btn st" id="go" type="submit"><span class="fill"></span><span class="lbl" id="goL">Accedi</span></button>
+      </form>
+      <p class="switch st" id="switch"><span id="swT">Non hai un account?</span> <button type="button" id="swB">Crea account</button></p>
     </div>
-    <form id="f" novalidate>
-      <label class="fld"><span>Nome utente</span>
-        <input id="name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="32" inputmode="text"></label>
-      <label class="fld"><span>Password</span>
-        <span class="pw"><input id="pw" name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200">
-        <button type="button" class="eye" id="eye" aria-label="Mostra password"><svg viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><path d="M12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z"/></svg></button></span></label>
-      <label class="fld only-signup" id="codeF" hidden><span>Codice di invito</span>
-        <input id="code" name="code" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
-      <p class="hint only-signup" id="hint" hidden></p>
-      <p class="msg" id="msg" role="alert"></p>
-      <button class="btn" id="go" type="submit"><span class="fill"></span><span class="lbl" id="goL">Accedi</span></button>
-    </form>
+    <p class="legal st">I tuoi file li vedi solo tu.</p>
   </section>
-  <p class="foot" id="foot">Resti connesso per 30 giorni su questo dispositivo.</p>
-</main>
+  <aside class="art" aria-hidden="true">
+    <div class="art-in"><canvas id="waves"></canvas>
+      <div class="cap"><b>Un account, tutti i tool.</b><span id="capQ">Il tuo spazio personale, sempre con te.</span></div>
+    </div>
+  </aside>
+</div>
+<script src="/account/waves.js"></script>
 <script src="/account/account.js"></script>
 </body>
 </html>

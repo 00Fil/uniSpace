@@ -8,9 +8,7 @@ const store = { get: (k, d) => { try { return JSON.parse(localStorage['sk_' + k]
 
 /* ---------------------------------------------------------------- dati */
 // elenco tool e categorie: generato da tools/*/tool.json durante la build del gateway
-const REG = await fetch('tools.json', { cache: 'no-cache' }).then(r => {
-  if (r.status === 401) location.replace('/account/login?next=' + encodeURIComponent(location.pathname)); // sessione scaduta
-  return r.json(); }).then(j => j.tools ? j : { categories: [], tools: [] }).catch(() => ({ categories: [], tools: [] }));
+const REG = await fetch('tools.json', { cache: 'no-cache' }).then(r => r.json()).then(j => j.tools ? j : { categories: [], tools: [] }).catch(() => ({ categories: [], tools: [] }));
 const CATS = REG.categories;
 const CAT = Object.fromEntries(CATS.map(c => [c.id, c]));
 const I = {
@@ -117,10 +115,13 @@ hs.onclick = e => { const p = e.target.closest('[data-q]'); openPal(p ? p.datase
 ns.onclick = () => openPal('', ns);
 
 /* ---------------------------------------------------------------- account */
-// con gli account attivi (gateway) mostra chi è entrato, lo spazio usato e il tasto Esci
+// con gli account attivi (gateway) mostra chi è entrato, lo spazio usato, il profilo e il tasto Esci
 (async () => {
-  const me = await fetch('/account/api/me', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
-  if (!me) return;
+  // la home è pubblica: senza sessione compare "Accedi" (i tool chiedono comunque l'accesso)
+  const r = await fetch('/account/api/me', { cache: 'no-store' }).catch(() => null);
+  if (r && r.status === 401) { $('#acctIn').hidden = false; return; }
+  const me = r && r.ok ? await r.json().catch(() => null) : null;
+  if (!me) return; // nessun servizio account (es. in locale)
   const gb = n => n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(2).replace(/\.?0+$/, '').replace('.', ',')} GB` : `${Math.round(n / (1 << 20))} MB`;
   const box = $('#acct'), b = $('#acctB'), m = $('#acctM'), p = Math.min(1, me.used / me.quota);
   $('#acctI').textContent = $('#acctAv').textContent = me.name[0]; $('#acctN').textContent = me.name;
@@ -130,7 +131,7 @@ ns.onclick = () => openPal('', ns);
   b.onclick = e => { e.stopPropagation(); show(m.hidden); };
   document.addEventListener('click', e => { if (!m.hidden && !box.contains(e.target)) show(false); });
   addEventListener('keydown', e => { if (e.key === 'Escape' && !m.hidden) show(false); });
-  $('#acctOut').onclick = async () => { await fetch('/account/api/logout', { method: 'POST' }).catch(() => {}); location.replace('/account/login'); };
+  $('#acctOut').onclick = async () => { await fetch('/account/api/logout', { method: 'POST' }).catch(() => {}); location.reload(); };
 })();
 
 /* ---------------------------------------------------------------- ricerca a schermo intero */

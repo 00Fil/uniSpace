@@ -37,7 +37,9 @@ async function loadSpace(force) {
   try {
     const s = await api('api/space'); if (!s.quota) return;
     const p = Math.min(1, s.used / s.quota), el = $('#space');
-    el.hidden = false; el.classList.toggle('full', p > .9);
+    const prof = '/account/?from=' + encodeURIComponent(location.pathname);
+    el.hidden = false; el.classList.toggle('full', p > .9); el.href = prof;
+    if (s.user) { const b = $('#acctBtn'); b.hidden = false; b.href = prof; b.title = `${s.user} · profilo e spazio`; $('#acctI').textContent = s.user[0].toUpperCase(); }
     $('#spaceT').textContent = `${gbf(s.used)} di ${gbf(s.quota)}`;
     $('#spaceB').style.transform = `scaleX(${p.toFixed(4)})`;
   } catch {}

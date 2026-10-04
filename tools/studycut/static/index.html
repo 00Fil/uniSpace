@@ -43,6 +43,7 @@
       <div class="status" id="status"></div>
       <button class="ib" id="importBtn" title="Importa un file"><svg viewBox="0 0 24 24"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3M12 15V4m0 0L8 8m4-4 4 4"/></svg></button>
       <button class="ib" id="tglR" title="Controlli (P)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg></button>
+      <a class="ib acct-b" id="acctBtn" href="/account/" title="Profilo e spazio" aria-label="Profilo e spazio" hidden><span id="acctI"></span></a>
     </div>
     <input type="file" id="fileInput" accept="video/*,audio/*,.mkv" multiple hidden>
   </header>
@@ -55,7 +56,7 @@
       </div></div>
       <div class="sec-h"><span>Libreria</span><span id="libCount"></span></div>
       <div class="lib" id="lib"></div>
-      <div class="space" id="space" hidden><div class="space-t"><span>Il tuo spazio</span><span id="spaceT"></span></div><div class="space-b"><i id="spaceB"></i></div></div>
+      <a class="space" id="space" href="/account/" title="Apri il profilo: spazio usato e account" hidden><div class="space-t"><span>Il tuo spazio <em>Profilo ›</em></span><span id="spaceT"></span></div><div class="space-b"><i id="spaceB"></i></div></a>
     </div></aside>
 
     <main class="stage">

@@ -2,14 +2,16 @@
 togliendo il prefisso: qui le richieste arrivano come "/", "/api/..." ecc.
 Nel frontend usa sempre percorsi relativi (fetch('api/ciao'), non '/api/ciao').
 L'accesso lo controlla il gateway: ogni richiesta porta X-User-Id, X-User-Name e X-User-Quota.
-I file dell'utente vanno in /data/users/<X-User-Id>/__ID__/ (volume "userdata")."""
+I file dell'utente vanno in /data/users/<X-User-Id>/__ID__/ (volume "userdata").
+/account/badge.js aggiunge il pulsante dell'account (profilo, spazio usato, Esci)."""
 import json
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 PAGE = b"""<!doctype html><meta charset="utf-8"><title>__NAME__</title>
 <body style="font-family:system-ui;background:#000;color:#eee">
 <p><a style="color:#a9c6ff" href="../">&larr; StudyKit</a></p><h1>__NAME__</h1><p id="o">...</p>
-<script>fetch('api/ciao').then(r => r.json()).then(j => o.textContent = j.msg)</script>"""
+<script>fetch('api/ciao').then(r => r.json()).then(j => o.textContent = j.msg)</script>
+<script src="/account/badge.js" defer></script>"""
 
 
 class H(BaseHTTPRequestHandler):

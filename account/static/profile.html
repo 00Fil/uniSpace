@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex">
+<title>Profilo · StudyKit</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%227%22 fill=%22%23eee%22/%3E%3Cpath d=%22M7 7h4v4H7zM13 7h4v4h-4zM7 13h4v4H7zM13 13h4v4h-4z%22 fill=%22%23000%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/account/account.css">
+</head>
+<body>
+<header class="pbar">
+  <a class="brand st" href="/"><span class="mark"><i></i><i></i><i></i><i></i></span>StudyKit</a>
+  <a class="back st" id="back" href="/"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg><span id="backL">Torna alla home</span></a>
+</header>
+<main class="prof">
+  <section class="who st"><div class="ava" id="ava"></div><div><h1 id="nm">…</h1><p id="since"></p></div></section>
+
+  <section class="card st" id="spc">
+    <h2>Il tuo spazio</h2>
+    <div class="big"><b id="used">–</b><span id="of"></span><em id="free"></em></div>
+    <div class="bar"><i id="bar"></i></div>
+    <ul class="parts" id="parts"></ul>
+    <p class="note">Lo spazio è unico e condiviso tra tutti i tool. Per liberarlo elimina i file dentro il tool che li ha creati.</p>
+  </section>
+
+  <section class="card st">
+    <h2>Cambia password</h2>
+    <form class="pwf" id="pwf" novalidate>
+      <input type="text" name="username" id="un" autocomplete="username" hidden>
+      <label class="fld"><span>Password attuale</span><input id="old" type="password" autocomplete="current-password" maxlength="200"></label>
+      <label class="fld"><span>Nuova password</span><input id="new" type="password" autocomplete="new-password" maxlength="200" placeholder="Almeno 8 caratteri"></label>
+      <div class="row"><button class="btn sm" id="pwGo" type="submit"><span class="fill"></span><span class="lbl">Cambia password</span></button>
+        <p class="msg" id="pwMsg" role="alert"></p><p class="ok-msg" id="pwOk" hidden>Password cambiata. Gli altri dispositivi sono stati disconnessi.</p></div>
+    </form>
+  </section>
+
+  <section class="card st">
+    <h2>Sessioni</h2>
+    <div class="ses"><p id="sesT">…</p>
+      <button class="ghost" id="out" type="button">Esci</button>
+      <button class="ghost danger" id="outAll" type="button">Esci da tutti i dispositivi</button></div>
+  </section>
+</main>
+<script src="/account/profile.js"></script>
+</body>
+</html>

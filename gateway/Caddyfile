@@ -9,6 +9,25 @@
 	}
 }
 
+# Controllo dell'accesso, usato da ogni rotta dei tool (vedi scripts/build-registry.mjs).
+# Il servizio account conferma la sessione e passa al tool chi e' l'utente:
+# X-User-Id (cartella personale), X-User-Name, X-User-Quota. Senza sessione: pagina di accesso.
+# "route" mantiene l'ordine scritto: prima si tolgono gli header falsi, poi si controlla.
+(login) {
+	route {
+		# mai fidarsi di questi header se arrivano dal browser
+		request_header -X-User-Id
+		request_header -X-User-Name
+		request_header -X-User-Quota
+		forward_auth account:8000 {
+			uri /auth/verify
+			# indirizzo completo (con /nome-tool/) per tornare qui dopo l'accesso
+			header_up X-Forwarded-Uri {http.request.orig_uri}
+			copy_headers X-User-Id X-User-Name X-User-Quota
+		}
+	}
+}
+
 :80 {
 	encode zstd gzip
 
@@ -23,44 +42,28 @@
 		respond "ok" 200
 	}
 
-	# account: pagina di accesso, registrazione e sessioni (l'unica parte pubblica)
+	# account: accesso, registrazione, profilo e sessioni
 	handle /account/* {
 		reverse_proxy account:8000 {
 			header_up X-Client-IP {client_ip}
 		}
 	}
-	redir /account /account/login 302
+	redir /account /account/ 308
 
-	# tutto il resto (home e tool) richiede l'accesso. Il servizio account conferma la sessione
-	# e passa ai tool chi e' l'utente: X-User-Id (cartella personale), X-User-Name, X-User-Quota.
-	# "route" mantiene l'ordine scritto: prima si controlla l'accesso, poi si serve la pagina.
+	# una rotta per ogni tool, generate da tools/*/tool.json: richiedono l'accesso (import login)
+	import /etc/caddy/routes/*.caddy
+
+	# la home e l'elenco dei tool sono pubblici
+	handle /tools.json {
+		header Cache-Control "no-cache"
+		root * /srv/home
+		file_server
+	}
+
 	handle {
-		route {
-			# mai fidarsi di questi header se arrivano dal browser
-			request_header -X-User-Id
-			request_header -X-User-Name
-			request_header -X-User-Quota
-			forward_auth account:8000 {
-				uri /auth/verify
-				copy_headers X-User-Id X-User-Name X-User-Quota
-			}
-
-			# una rotta per ogni tool, generate da tools/*/tool.json
-			import /etc/caddy/routes/*.caddy
-
-			handle /tools.json {
-				header Cache-Control "private, no-cache"
-				root * /srv/home
-				file_server
-			}
-
-			handle {
-				# il browser ricontrolla sempre (e quindi ripassa dal controllo dell'accesso)
-				header Cache-Control "private, no-cache"
-				root * /srv/home
-				file_server
-			}
-		}
+		header Cache-Control "no-cache"
+		root * /srv/home
+		file_server
 	}
 
 	log {
