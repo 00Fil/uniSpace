@@ -1,0 +1,52 @@
+/* stessi token e stessa filosofia di StudyCut: superfici piene, una sola luce (il bianco) */
+:root{color-scheme:dark;--bg:#000;--s1:#0d0d0f;--s2:#141416;--s3:#1c1c1f;--line:#1f1f22;--line-2:#2a2a2e;
+  --text:#ededee;--muted:#9a9aa0;--faint:#626268;--ok:#7fc79f;--err:#e8877c;
+  --e-out:cubic-bezier(.16,1,.3,1);--e-spring:cubic-bezier(.25,1,.4,1)}
+@supports (transition-timing-function:linear(0,1)){:root{--e-spring:linear(0,0.0271,0.0941,0.1838,0.2838,0.3854,0.483,0.573,0.6535,0.7236,0.7835,0.8336,0.8748,0.908,0.9344,0.955,0.9708,0.9825,0.9911,0.9972,1.0013,1.0039,1.0054,1.0061,1.0063,1.0061,1.0056,1.005,1.0044,1.0038,1.0032,1.0026,1.0021,1.0017,1.0013,1.001,1.0008,1.0006,1.0004,1.0003,1)}}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{min-height:100%}
+body{background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+.wrap{min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px max(20px,env(safe-area-inset-left)) 32px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.02em;font-size:16px;margin-bottom:28px;animation:rise .7s var(--e-out) both}
+.mark{width:22px;height:22px;display:grid;grid-template-columns:1fr 1fr;gap:2.5px;padding:2px}
+.mark i{background:var(--text);border-radius:3px}
+.card{width:100%;max-width:400px;background:var(--s1);border-radius:20px;padding:30px 28px 26px;box-shadow:0 0 0 1px var(--line),0 40px 100px -40px #000;animation:rise .8s .06s var(--e-out) both}
+h1{font-size:28px;font-weight:680;letter-spacing:-.04em;line-height:1.1}
+.lead{color:var(--muted);margin-top:8px;font-size:14px;text-wrap:pretty}
+.seg{position:relative;display:grid;grid-template-columns:1fr 1fr;background:var(--s2);border-radius:11px;padding:3px;margin:22px 0 20px;isolation:isolate;box-shadow:inset 0 0 0 1px var(--line)}
+.seg button{height:34px;border-radius:8px;font-size:13px;font-weight:560;color:var(--muted);transition:color .26s}
+.seg button.on{color:var(--text)}
+.ind{position:absolute;top:3px;bottom:3px;left:3px;width:calc(50% - 3px);border-radius:8px;background:var(--s3);box-shadow:inset 0 0 0 1px var(--line-2);z-index:-1;transition:transform .55s var(--e-spring)}
+.seg[data-m=signup] .ind{transform:translateX(100%)}
+form{display:flex;flex-direction:column;gap:14px}
+.fld{display:flex;flex-direction:column;gap:7px}
+.fld>span:first-child{font-size:12px;font-weight:560;color:var(--muted)}
+input{width:100%;height:46px;padding:0 14px;border-radius:12px;border:0;outline:0;background:var(--s2);box-shadow:inset 0 0 0 1px var(--line-2);font-size:15px;
+  transition:box-shadow .2s,background .2s}
+input:focus{box-shadow:inset 0 0 0 1.5px var(--text);background:var(--s3)}
+input.bad{box-shadow:inset 0 0 0 1.5px var(--err)}
+.pw{position:relative;display:block}
+.pw input{padding-right:46px}
+.eye{position:absolute;right:4px;top:4px;width:38px;height:38px;border-radius:9px;display:grid;place-items:center;color:var(--faint);transition:color .2s,background .2s}
+.eye svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.eye.on{color:var(--text)}
+.hint{font-size:12px;color:var(--faint);margin-top:-4px}
+.msg{min-height:0;font-size:13px;color:var(--err);display:none}
+.msg.show{display:block;animation:shake .4s var(--e-out)}
+.btn{position:relative;height:46px;border-radius:12px;background:var(--text);color:#111113;font-weight:600;font-size:15px;overflow:hidden;isolation:isolate;margin-top:6px;
+  transition:transform .4s var(--e-spring),background .2s}
+.btn:active{transform:scale(.97)}
+.btn .fill{position:absolute;inset:0;z-index:-1;background:#c9c9cc;transform-origin:left;transform:scaleX(0)}
+.btn.busy{pointer-events:none}
+.btn.busy .fill{animation:load 1.4s var(--e-out) infinite}
+.btn.ok{background:var(--ok);color:#0f2a1b}
+.foot{margin-top:22px;font-size:12px;color:var(--faint);text-align:center;animation:rise .8s .12s var(--e-out) both}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}}
+@keyframes shake{0%,100%{transform:none}25%{transform:translateX(-5px)}60%{transform:translateX(4px)}}
+@keyframes load{from{transform:scaleX(0)}to{transform:scaleX(1);opacity:0}}
+@media (hover:hover){.btn:hover{background:#fff}.eye:hover{color:var(--text);background:var(--s3)}.seg button:hover{color:var(--text)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:480px){.card{padding:24px 20px 22px;border-radius:18px}h1{font-size:25px}}

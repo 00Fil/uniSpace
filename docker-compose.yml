@@ -1,6 +1,9 @@
 # StudyKit su Dokploy
 # - In Dokploy aggiungi il dominio SOLO al servizio "gateway" (porta 80).
 # - I tool non hanno porte pubbliche: li raggiunge il gateway sulla rete interna "hub".
+# - Serve un account per usare qualsiasi cosa: login e sessioni li gestisce il servizio "account".
+# - Ogni utente ha la sua cartella nel volume "userdata" (/data/users/<id>/<tool>) e un limite
+#   di spazio unico per tutti i tool (USER_QUOTA_GB, 2 GB se non lo cambi).
 # - Per aggiungere un tool: README.md → "Aggiungere un tool".
 
 services:
@@ -9,8 +12,26 @@ services:
       context: .
       dockerfile: gateway/Dockerfile
     restart: unless-stopped
+    depends_on:
+      - account
     expose:
       - "80"
+    networks:
+      - hub
+
+  account:
+    build: ./account
+    restart: unless-stopped
+    environment:
+      USER_QUOTA_GB: ${USER_QUOTA_GB:-2}
+      SIGNUP: ${SIGNUP:-open}            # open = chiunque può registrarsi · closed = solo da terminale
+      SIGNUP_CODE: ${SIGNUP_CODE:-}      # se lo imposti, serve questo codice per registrarsi
+      SESSION_DAYS: ${SESSION_DAYS:-30}
+    volumes:
+      - account-data:/data
+      - userdata:/data/users:ro          # solo per mostrare lo spazio usato
+    expose:
+      - "8000"
     networks:
       - hub
 
@@ -20,9 +41,11 @@ services:
     restart: unless-stopped
     environment:
       STUDYCUT_PARALLEL: ${STUDYCUT_PARALLEL:-3}
+      STUDYCUT_USERS: /data/users        # una libreria per utente: /data/users/<id>/studycut
+      STUDYCUT_QUOTA_GB: ${USER_QUOTA_GB:-2}
       YTDLP_AUTO_UPDATE: ${YTDLP_AUTO_UPDATE:-1}
     volumes:
-      - studycut-library:/app/library
+      - userdata:/data/users
       - studycut-secrets:/app/secrets
     expose:
       - "8765"
@@ -33,6 +56,10 @@ services:
   # mio-tool:
   #   build: ./tools/mio-tool
   #   restart: unless-stopped
+  #   environment:
+  #     USERS_ROOT: /data/users          # salva in /data/users/<X-User-Id>/mio-tool
+  #   volumes:
+  #     - userdata:/data/users
   #   expose:
   #     - "8000"
   #   networks:
@@ -43,5 +70,6 @@ networks:
   hub:
 
 volumes:
-  studycut-library:
+  account-data:
+  userdata:
   studycut-secrets:

@@ -22,10 +22,26 @@ const ICON = {
   tick: '<span class="tick"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg></span>',
 };
 
+// sessione scaduta (gateway con gli account): torna alla pagina di accesso e poi qui
+const relogin = () => location.assign('/account/login?next=' + encodeURIComponent(location.pathname + location.search));
 const api = async (path, opts = {}) => {
   const r = await fetch(path, opts); const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { relogin(); throw new Error(j.error || 'Accesso richiesto'); }
   if (!r.ok) throw new Error(j.error || r.statusText); return j;
 };
+/* spazio personale (solo con gli account): barra in fondo alla libreria */
+let spaceT = 0;
+const gbf = n => n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(2).replace(/\.?0+$/, '').replace('.', ',')} GB` : `${Math.round(n / (1 << 20))} MB`;
+async function loadSpace(force) {
+  if (!force && Date.now() - spaceT < 8000) return; spaceT = Date.now();
+  try {
+    const s = await api('api/space'); if (!s.quota) return;
+    const p = Math.min(1, s.used / s.quota), el = $('#space');
+    el.hidden = false; el.classList.toggle('full', p > .9);
+    $('#spaceT').textContent = `${gbf(s.used)} di ${gbf(s.quota)}`;
+    $('#spaceB').style.transform = `scaleX(${p.toFixed(4)})`;
+  } catch {}
+}
 const post = (p, b) => api(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
 const fmt = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`; };
@@ -317,11 +333,12 @@ function itemHTML(m, k, nw) {
 }
 async function loadLib() {
   state.lib = await api('api/library');
+  loadSpace(false);
   const live = state.lib.filter(m => !m.archived), arch = state.lib.filter(m => m.archived);
   $('#libCount').textContent = live.length || '';
   const el = $('#lib');
   const key = JSON.stringify(state.lib.map(m => [m.id, m.thumb, m.title, m.archived, m.analysis && m.analysis.kept])) + (state.cur && state.cur.id) + showArch;
-  if (key === libKey) return; libKey = key;
+  if (key === libKey) return; libKey = key; loadSpace(true);
   stopPreview();
   let k = 0;
   const mk = m => { const nw = !libSeen.has(m.id); libSeen.add(m.id); return itemHTML(m, nw ? k++ : 0, nw); };
@@ -477,6 +494,7 @@ async function importFile(f) {
         headers: { 'Content-Type': 'application/octet-stream' } }).catch(() => null);
       const j = r ? await r.json().catch(() => ({})) : {};
       if (r && (r.ok || r.status === 409) && typeof j.got === 'number') { off = j.got; fails = 0; continue; }
+      if (r && r.status === 401) { relogin(); throw new Error('Accesso richiesto'); }
       if (r && r.status === 404) throw new Error(j.error || 'Caricamento scaduto');
       if (++fails > 5) throw new Error(j.error || 'Connessione persa durante il caricamento');
       await sleep(1000 * fails);

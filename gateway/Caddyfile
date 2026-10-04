@@ -23,18 +23,44 @@
 		respond "ok" 200
 	}
 
-	# una rotta per ogni tool, generate da tools/*/tool.json
-	import /etc/caddy/routes/*.caddy
-
-	handle /tools.json {
-		header Cache-Control "no-cache"
-		root * /srv/home
-		file_server
+	# account: pagina di accesso, registrazione e sessioni (l'unica parte pubblica)
+	handle /account/* {
+		reverse_proxy account:8000 {
+			header_up X-Client-IP {client_ip}
+		}
 	}
+	redir /account /account/login 302
 
+	# tutto il resto (home e tool) richiede l'accesso. Il servizio account conferma la sessione
+	# e passa ai tool chi e' l'utente: X-User-Id (cartella personale), X-User-Name, X-User-Quota.
+	# "route" mantiene l'ordine scritto: prima si controlla l'accesso, poi si serve la pagina.
 	handle {
-		root * /srv/home
-		file_server
+		route {
+			# mai fidarsi di questi header se arrivano dal browser
+			request_header -X-User-Id
+			request_header -X-User-Name
+			request_header -X-User-Quota
+			forward_auth account:8000 {
+				uri /auth/verify
+				copy_headers X-User-Id X-User-Name X-User-Quota
+			}
+
+			# una rotta per ogni tool, generate da tools/*/tool.json
+			import /etc/caddy/routes/*.caddy
+
+			handle /tools.json {
+				header Cache-Control "private, no-cache"
+				root * /srv/home
+				file_server
+			}
+
+			handle {
+				# il browser ricontrolla sempre (e quindi ripassa dal controllo dell'accesso)
+				header Cache-Control "private, no-cache"
+				root * /srv/home
+				file_server
+			}
+		}
 	}
 
 	log {

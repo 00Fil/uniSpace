@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#000000">
 <title>StudyKit · Tutto per l’uni, zero sbatti</title>
 <meta name="description" content="Tool gratuiti per studenti universitari, tutti in un posto.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%227%22 fill=%22%23eee%22/%3E%3Cpath d=%22M7 7h4v4H7zM13 7h4v4h-4zM7 13h4v4H7z%22 fill=%22%23000%22/%3E%3Ccircle cx=%2215%22 cy=%2215%22 r=%222%22 fill=%22%23000%22/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%227%22 fill=%22%23eee%22/%3E%3Cpath d=%22M7 7h4v4H7zM13 7h4v4h-4zM7 13h4v4H7z%22 fill=%22%23000%22/%3E%3Cpath d=%22M13 13h4v4h-4z%22 fill=%22%23000%22/%3E%3C/svg%3E">
 <link rel="stylesheet" href="home.css">
 </head>
 <body>
@@ -15,6 +15,15 @@
 <header class="top" id="top">
   <a class="logo" href="#"><span class="mark"><i></i><i></i><i></i><i class="d"></i></span>StudyKit</a>
   <button class="nsearch" id="nsearch" type="button" tabindex="-1" aria-label="Cerca un tool"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><span>Cerca un tool</span><kbd class="kh">Ctrl K</kbd></button>
+  <div class="acct" id="acct" hidden>
+    <button class="acct-b" id="acctB" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Il tuo account"><span id="acctI"></span></button>
+    <div class="acct-m" id="acctM" role="menu" hidden>
+      <div class="acct-h"><span class="acct-av" id="acctAv"></span><div><b id="acctN"></b><small>Account StudyKit</small></div></div>
+      <div class="acct-s"><div class="acct-st"><span>Il tuo spazio</span><span id="acctU"></span></div><div class="acct-bar"><i id="acctBar"></i></div>
+        <p>Vale per tutti i tool: i tuoi video e i tuoi file li vedi solo tu.</p></div>
+      <button class="acct-x" id="acctOut" type="button" role="menuitem"><svg viewBox="0 0 24 24"><path d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14M10 16l-4-4 4-4M6 12h10"/></svg>Esci</button>
+    </div>
+  </div>
 </header>
 
 <main>

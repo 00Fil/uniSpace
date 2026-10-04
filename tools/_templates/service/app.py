@@ -1,6 +1,8 @@
 """Esempio minimo di tool con server. Il gateway lo pubblica su /__ID__/
 togliendo il prefisso: qui le richieste arrivano come "/", "/api/..." ecc.
-Nel frontend usa sempre percorsi relativi (fetch('api/ciao'), non '/api/ciao')."""
+Nel frontend usa sempre percorsi relativi (fetch('api/ciao'), non '/api/ciao').
+L'accesso lo controlla il gateway: ogni richiesta porta X-User-Id, X-User-Name e X-User-Quota.
+I file dell'utente vanno in /data/users/<X-User-Id>/__ID__/ (volume "userdata")."""
 import json
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -12,11 +14,14 @@ PAGE = b"""<!doctype html><meta charset="utf-8"><title>__NAME__</title>
 
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path.startswith("/api/ciao"):
-            body, ctype = json.dumps({"msg": "Ciao dal server!"}).encode(), "application/json"
+        user = self.headers.get("X-User-Name")
+        if not self.headers.get("X-User-Id"):
+            body, ctype, code = b'{"error": "Accesso richiesto"}', "application/json", 401
+        elif self.path.startswith("/api/ciao"):
+            body, ctype, code = json.dumps({"msg": f"Ciao {user}, dal server!"}).encode(), "application/json", 200
         else:
-            body, ctype = PAGE, "text/html; charset=utf-8"
-        self.send_response(200)
+            body, ctype, code = PAGE, "text/html; charset=utf-8", 200
+        self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

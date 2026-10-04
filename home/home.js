@@ -8,7 +8,9 @@ const store = { get: (k, d) => { try { return JSON.parse(localStorage['sk_' + k]
 
 /* ---------------------------------------------------------------- dati */
 // elenco tool e categorie: generato da tools/*/tool.json durante la build del gateway
-const REG = await fetch('tools.json', { cache: 'no-cache' }).then(r => r.json()).catch(() => ({ categories: [], tools: [] }));
+const REG = await fetch('tools.json', { cache: 'no-cache' }).then(r => {
+  if (r.status === 401) location.replace('/account/login?next=' + encodeURIComponent(location.pathname)); // sessione scaduta
+  return r.json(); }).then(j => j.tools ? j : { categories: [], tools: [] }).catch(() => ({ categories: [], tools: [] }));
 const CATS = REG.categories;
 const CAT = Object.fromEntries(CATS.map(c => [c.id, c]));
 const I = {
@@ -113,6 +115,23 @@ function onScroll() {
 addEventListener('scroll', onScroll, { passive: true }); addEventListener('resize', onScroll); onScroll();
 hs.onclick = e => { const p = e.target.closest('[data-q]'); openPal(p ? p.dataset.q : '', hs); };
 ns.onclick = () => openPal('', ns);
+
+/* ---------------------------------------------------------------- account */
+// con gli account attivi (gateway) mostra chi è entrato, lo spazio usato e il tasto Esci
+(async () => {
+  const me = await fetch('/account/api/me', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+  if (!me) return;
+  const gb = n => n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(2).replace(/\.?0+$/, '').replace('.', ',')} GB` : `${Math.round(n / (1 << 20))} MB`;
+  const box = $('#acct'), b = $('#acctB'), m = $('#acctM'), p = Math.min(1, me.used / me.quota);
+  $('#acctI').textContent = $('#acctAv').textContent = me.name[0]; $('#acctN').textContent = me.name;
+  $('#acctU').textContent = `${gb(me.used)} di ${gb(me.quota)}`; m.querySelector('.acct-s').classList.toggle('full', p > .9);
+  box.hidden = false;
+  const show = on => { m.hidden = !on; b.setAttribute('aria-expanded', on); if (on) requestAnimationFrame(() => $('#acctBar').style.transform = `scaleX(${p.toFixed(4)})`); };
+  b.onclick = e => { e.stopPropagation(); show(m.hidden); };
+  document.addEventListener('click', e => { if (!m.hidden && !box.contains(e.target)) show(false); });
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !m.hidden) show(false); });
+  $('#acctOut').onclick = async () => { await fetch('/account/api/logout', { method: 'POST' }).catch(() => {}); location.replace('/account/login'); };
+})();
 
 /* ---------------------------------------------------------------- ricerca a schermo intero */
 const pal = $('#pal'), pq = $('#pq'), plist = $('#pList'), psc = $('#palSc'), pin = $('#palIn');

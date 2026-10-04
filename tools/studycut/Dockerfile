@@ -8,8 +8,8 @@ COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 
 RUN useradd --uid 1000 --create-home app \
  && python -m venv /opt/venv \
- && mkdir -p /app/library /app/secrets \
- && chown -R app:app /opt/venv /app
+ && mkdir -p /app/library /app/secrets /data/users \
+ && chown -R app:app /opt/venv /app /data
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -30,7 +30,6 @@ COPY --chown=app:app --chmod=755 entrypoint.sh ./
 COPY --chown=app:app static/ static/
 
 EXPOSE 8765
-VOLUME ["/app/library"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
   CMD python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8765/api/status', timeout=4)" || exit 1
 ENTRYPOINT ["tini", "-g", "--", "/app/entrypoint.sh"]

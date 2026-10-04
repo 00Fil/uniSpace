@@ -9,7 +9,15 @@ from urllib.parse import urlparse, quote, parse_qs
 BASE = Path(__file__).resolve().parent
 LIB = Path(os.environ.get("STUDYCUT_LIBRARY") or BASE / "library")
 STATIC = BASE / "static"
-LIB.mkdir(exist_ok=True)
+# multiutente (dietro il gateway con gli account): ogni utente ha /<USERS>/<id>/studycut e un limite di spazio
+# condiviso con gli altri tool (si conta tutta la cartella /<USERS>/<id>). Senza: libreria unica, uso locale.
+USERS_ROOT = Path(os.environ["STUDYCUT_USERS"]) if os.environ.get("STUDYCUT_USERS") else None
+QUOTA_DEFAULT = int(float(os.environ.get("STUDYCUT_QUOTA_GB", "2")) * (1 << 30))
+UID_RE = re.compile(r"^[a-f0-9]{8,40}$")
+if USERS_ROOT:
+    USERS_ROOT.mkdir(parents=True, exist_ok=True)
+else:
+    LIB.mkdir(exist_ok=True)
 HOST = os.environ.get("STUDYCUT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("STUDYCUT_PORT", "8765"))
 COOKIES = os.environ.get("STUDYCUT_COOKIES")  # file cookies.txt (formato Netscape), utile su VPS
@@ -20,11 +28,66 @@ CONVERT = (".avi", ".wmv", ".flv", ".mpg", ".mpeg", ".ts", ".mts", ".m2ts", ".3g
 UPLOADS, UP_LOCK = {}, threading.Lock()
 
 
+def all_libs():
+    if not USERS_ROOT:
+        return [LIB]
+    return [u / "studycut" for u in USERS_ROOT.iterdir() if (u / "studycut").is_dir()]
+
+
 def clean_partials():
     """All'avvio toglie le cartelle rimaste senza meta.json (upload/download interrotti)."""
-    for d in LIB.iterdir():
-        if d.is_dir() and VID_RE.match(d.name) and not (d / "meta.json").exists():
-            shutil.rmtree(d, ignore_errors=True)
+    for lib in all_libs():
+        for d in lib.iterdir():
+            if d.is_dir() and VID_RE.match(d.name) and not (d / "meta.json").exists():
+                shutil.rmtree(d, ignore_errors=True)
+
+
+def dir_size(root):
+    total = 0
+    for dp, _, files in os.walk(root):
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(dp, f)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def gb(n):
+    return f"{n / (1 << 30):.2f}".rstrip("0").rstrip(".").replace(".", ",") + " GB" if n >= (1 << 30) // 10 \
+        else f"{max(0, n) / (1 << 20):.0f} MB"
+
+
+class QuotaError(RuntimeError):
+    pass
+
+
+class Space:
+    """Lo spazio di chi fa la richiesta: cartella della libreria e limite (None = nessun limite)."""
+    def __init__(self, uid, root, quota):
+        self.uid, self.root, self.quota = uid, root, quota
+        self.lib = root / "studycut" if USERS_ROOT else root
+        self.lib.mkdir(parents=True, exist_ok=True)
+
+    def used(self):
+        return dir_size(self.root)
+
+    def free(self):
+        """Byte ancora disponibili, tolti i caricamenti in corso. None = nessun limite."""
+        if self.quota is None:
+            return None
+        with UP_LOCK:
+            pending = sum(u["size"] - u["got"] for u in UPLOADS.values() if u["uid"] == self.uid)
+        return self.quota - self.used() - pending
+
+    def need(self, n, what="questa operazione"):
+        f = self.free()
+        if f is not None and n > f:
+            raise QuotaError(f"Spazio esaurito: per {what} servono circa {gb(n)}, ne hai {gb(f)} liberi "
+                             f"su {gb(self.quota)}. Elimina qualche video o esportazione.")
+
+    def over(self):
+        return self.quota is not None and self.used() > self.quota
 
 
 def find_ffmpeg():
@@ -60,10 +123,10 @@ DL_SEM = threading.Semaphore(int(os.environ.get("STUDYCUT_PARALLEL", "3")))
 CPU_SEM = threading.Semaphore(2)
 
 
-def new_job(kind, vid=None, **extra):
+def new_job(kind, vid=None, owner="local", **extra):
     jid = uuid.uuid4().hex[:10]
     with LOCK:
-        JOBS[jid] = {"id": jid, "kind": kind, "video": vid, "status": "queued",
+        JOBS[jid] = {"id": jid, "kind": kind, "video": vid, "owner": owner, "status": "queued",
                      "progress": 0.0, "message": "In coda", "result": None,
                      "created": time.time(), "ended": None, "title": None, "thumb": None, **extra}
     return jid
@@ -91,23 +154,24 @@ def run_job(jid, fn, *args, sem=None):
     threading.Thread(target=worker, daemon=True).start()
 
 
-def jobs_snapshot():
+def jobs_snapshot(owner=None):
     now = time.time()
     with LOCK:
-        return [dict(j) for j in JOBS.values() if not j["ended"] or now - j["ended"] < 30]
+        return [{k: v for k, v in j.items() if k != "owner"} for j in JOBS.values()
+                if (owner is None or j["owner"] == owner) and (not j["ended"] or now - j["ended"] < 30)]
 
 
 # ---------------------------------------------------------------- library
-def mpath(vid):
-    return LIB / vid / "meta.json"
+def mpath(lib, vid):
+    return lib / vid / "meta.json"
 
 
-def load_meta(vid):
-    return json.loads(mpath(vid).read_text("utf-8"))
+def load_meta(lib, vid):
+    return json.loads(mpath(lib, vid).read_text("utf-8"))
 
 
-def save_meta(m):
-    p = mpath(m["id"])
+def save_meta(lib, m):
+    p = mpath(lib, m["id"])
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(m, ensure_ascii=False, indent=1), "utf-8")
     os.replace(tmp, p)
@@ -144,13 +208,13 @@ def to_mp4(path, jid=None):
     return dst
 
 
-def finalize(vid, path, title, source, jid=None):
+def finalize(lib, vid, path, title, source, jid=None):
     if path.suffix.lower() in CONVERT:
         path = to_mp4(path, jid)
     dur, has_video = probe(path)
-    thumb = LIB / vid / "thumb.jpg"
+    thumb = lib / vid / "thumb.jpg"
     for ext in (".jpg", ".webp", ".png"):
-        yt = LIB / vid / ("video" + ext)
+        yt = lib / vid / ("video" + ext)
         if yt.exists() and yt != path:
             subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(yt),
                             "-vf", "scale=640:-2", str(thumb)], capture_output=True)
@@ -163,31 +227,34 @@ def finalize(vid, path, title, source, jid=None):
          "duration": dur, "file": path.name, "thumb": thumb.name if thumb.exists() else None,
          "audio": not has_video, "archived": False,
          "analysis": None, "exports": []}
-    save_meta(m)
+    save_meta(lib, m)
     return m
 
 
-def library():
+def library(lib):
     out = []
-    for d in LIB.iterdir():
+    for d in lib.iterdir():
         if d.is_dir() and (d / "meta.json").exists():
             try:
-                out.append(load_meta(d.name))
+                out.append(load_meta(lib, d.name))
             except Exception:
                 pass
     return sorted(out, key=lambda m: m["created"], reverse=True)
 
 
 # ---------------------------------------------------------------- download
-def job_download(jid, url, quality):
+def job_download(jid, sp, url, quality):
     try:
         import yt_dlp
     except ImportError:
         raise RuntimeError("yt-dlp non installato: esegui  pip install -U \"yt-dlp[default]\"")
+    lib = sp.lib
+    sp.need(50 << 20, "scaricare un video")
     vid = uuid.uuid4().hex[:10]
-    d = LIB / vid
+    d = lib / vid
     d.mkdir()
     upd(jid, video=vid, message="Recupero informazioni...")
+    last_check = [0.0]
     audio = quality == "audio"
     h = int(quality) if str(quality).isdigit() else 1080
     fmt = "ba[ext=m4a]/ba/b" if audio else (
@@ -203,6 +270,11 @@ def job_download(jid, url, quality):
                 j["thumb"] = info.get("thumbnail")
         kind = "video" if (s.get("info_dict") or {}).get("vcodec", "none") != "none" else "audio"
         if s["status"] == "downloading":
+            # limite di spazio: controllato mentre scarica (il peso esatto spesso non si sa prima)
+            if sp.quota is not None and time.time() - last_check[0] > 1.5:
+                last_check[0] = time.time()
+                if sp.over():
+                    raise QuotaError(f"Spazio esaurito: hai raggiunto {gb(sp.quota)}. Elimina qualche video e riprova.")
             tot = s.get("total_bytes") or s.get("total_bytes_estimate") or 0
             done = s.get("downloaded_bytes") or 0
             sp = s.get("speed") or 0
@@ -251,18 +323,22 @@ def job_download(jid, url, quality):
         if not files:
             raise RuntimeError("Download non riuscito")
         upd(jid, message="Creo anteprima...")
-        m = finalize(vid, files[0], info.get("title") or "Video", url)
+        m = finalize(lib, vid, files[0], info.get("title") or "Video", url)
+        if sp.over():
+            raise QuotaError(f"Spazio esaurito: il video supera il tuo spazio di {gb(sp.quota)}. Elimina qualche video e riprova.")
         upd(jid, result={"video": vid}, message=m["title"])
     except Exception as e:
         shutil.rmtree(d, ignore_errors=True)
+        if isinstance(e, QuotaError) or "Spazio esaurito" in str(e):
+            raise RuntimeError(re.sub(r"^.*?(Spazio esaurito)", r"\1", str(e)))
         msg = re.sub(r"\x1b\[[0-9;]*m", "", str(e)).replace("ERROR: ", "")
         raise RuntimeError(msg)
 
 
 # ---------------------------------------------------------------- silences
-def job_analyze(jid, vid, noise, mind, pad):
-    m = load_meta(vid)
-    src, dur = LIB / vid / m["file"], m["duration"] or 1
+def job_analyze(jid, lib, vid, noise, mind, pad):
+    m = load_meta(lib, vid)
+    src, dur = lib / vid / m["file"], m["duration"] or 1
     upd(jid, message="Analisi audio...")
     cmd = [FFMPEG, "-hide_banner", "-i", str(src), "-vn", "-af",
            f"silencedetect=noise={noise}dB:d={mind}", "-f", "null", "-"]
@@ -294,10 +370,10 @@ def job_analyze(jid, vid, noise, mind, pad):
         if b2 - a2 > 0.08:
             skips.append([round(a2, 3), round(b2, 3)])
     removed = sum(b - a for a, b in skips)
-    m = load_meta(vid)
+    m = load_meta(lib, vid)
     m["analysis"] = {"noise": noise, "min": mind, "pad": pad, "skips": skips,
                      "kept": max(0.0, dur - removed), "count": len(skips)}
-    save_meta(m)
+    save_meta(lib, m)
     upd(jid, result={"video": vid}, message=f"{len(skips)} silenzi trovati")
 
 
@@ -322,13 +398,16 @@ def atempo_chain(s):
     return ",".join(f"atempo={x:.5f}" for x in parts)
 
 
-def job_export(jid, vid, speed, remove):
-    m = load_meta(vid)
-    src, dur = LIB / vid / m["file"], m["duration"]
+def job_export(jid, sp, vid, speed, remove):
+    lib = sp.lib
+    m = load_meta(lib, vid)
+    src, dur = lib / vid / m["file"], m["duration"]
     if remove and not m.get("analysis"):
         raise RuntimeError("Analizza prima i silenzi")
     keep = keep_segments(m["analysis"]["skips"], dur) if remove else [(0, dur)]
     out_dur = sum(b - a for a, b in keep) / speed
+    # peso stimato dell'esportazione: come l'originale, in proporzione alla durata
+    sp.need(int(src.stat().st_size * out_dur / max(dur or 1, 0.1) * 1.1) + (20 << 20), "questa esportazione")
     is_audio = m.get("audio", False)
     vf, af = [], []
     if remove:
@@ -340,14 +419,14 @@ def job_export(jid, vid, speed, remove):
         af.append(atempo_chain(speed))
     tag = f"{speed:g}x".replace(".", ",") + ("_senza-silenzi" if remove else "")
     name = f"export_{tag}.{'m4a' if is_audio else 'mp4'}"
-    out = LIB / vid / name
-    tmp = LIB / vid / (name + ".part" + out.suffix)
+    out = lib / vid / name
+    tmp = lib / vid / (name + ".part" + out.suffix)
     cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(src)]
     if af:
         graph = f"[0:a]{','.join(af)}[a]" if is_audio else \
             f"[0:v]{','.join(vf)}[v];[0:a]{','.join(af)}[a]"
         if len(graph) > 6000:  # grafi lunghi -> file (limiti della riga di comando)
-            gfile = LIB / vid / "graph.txt"
+            gfile = lib / vid / "graph.txt"
             gfile.write_text(graph, "utf-8")
             cmd += (["-/filter_complex", str(gfile)] if FF_MAJOR >= 7
                     else ["-filter_complex_script", str(gfile)])
@@ -365,7 +444,14 @@ def job_export(jid, vid, speed, remove):
                          errors="ignore")
     err = []
     threading.Thread(target=lambda: err.extend(p.stderr), daemon=True).start()
+    last, over = time.time(), False
     for line in p.stdout:
+        if sp.quota is not None and time.time() - last > 2:
+            last = time.time()
+            if sp.over():
+                over = True
+                p.kill()
+                break
         if line.startswith(("out_time_us=", "out_time_ms=")):
             try:
                 sec = int(line.split("=")[1]) / 1e6
@@ -374,16 +460,19 @@ def job_export(jid, vid, speed, remove):
             except ValueError:
                 pass
     p.wait()
+    if over:
+        tmp.unlink(missing_ok=True)
+        raise QuotaError(f"Spazio esaurito durante l'esportazione: hai raggiunto {gb(sp.quota)}. Elimina qualche video e riprova.")
     if p.returncode != 0:
         tmp.unlink(missing_ok=True)
         raise RuntimeError("ffmpeg: " + "".join(err)[-300:])
     os.replace(tmp, out)
-    m = load_meta(vid)
+    m = load_meta(lib, vid)
     m["exports"] = [e for e in m.get("exports", []) if e["file"] != name]
     m["exports"].insert(0, {"file": name, "speed": speed, "remove": remove,
                             "duration": out_dur, "size": out.stat().st_size,
                             "created": time.time()})
-    save_meta(m)
+    save_meta(lib, m)
     upd(jid, result={"video": vid, "file": name}, message="Esportazione completata")
 
 
@@ -487,6 +576,27 @@ class H(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
 
+    # ---- chi sta chiedendo
+    def space(self):
+        """Spazio dell'utente della richiesta. In multiutente l'identita' arriva dal gateway (X-User-Id)."""
+        if not USERS_ROOT:
+            return Space("local", LIB, None)
+        uid = (self.headers.get("X-User-Id") or "").strip().lower()
+        if not UID_RE.match(uid):
+            return None
+        try:
+            quota = int(self.headers.get("X-User-Quota") or QUOTA_DEFAULT)
+        except ValueError:
+            quota = QUOTA_DEFAULT
+        return Space(uid, USERS_ROOT / uid, quota)
+
+    def need_space(self):
+        sp = self.space()
+        if not sp:
+            self.drain()
+            self.err("Accesso richiesto: entra con il tuo account", 401)
+        return sp
+
     # ---- GET
     def do_GET(self):
         u = urlparse(self.path)
@@ -501,30 +611,40 @@ class H(BaseHTTPRequestHandler):
                 ver = yt_dlp.version.__version__
             except Exception:
                 ver = None
-            return self.send_json({"ffmpeg": bool(FFMPEG), "ytdlp": ver})
-        if parts == ["api", "library"]:
-            return self.send_json(library())
-        if len(parts) == 3 and parts[:2] == ["api", "video"] and VID_RE.match(parts[2]):
-            if not mpath(parts[2]).exists():
-                return self.err("Video non trovato", 404)
-            return self.send_json(load_meta(parts[2]))
-        if parts == ["api", "jobs"]:
+            return self.send_json({"ffmpeg": bool(FFMPEG), "ytdlp": ver, "multiuser": bool(USERS_ROOT)})
+        # lavori di tutti: solo dall'interno del container (controllo prima del riavvio per aggiornare yt-dlp)
+        if parts == ["api", "jobs"] and USERS_ROOT and not self.headers.get("X-User-Id") and self.client_address[0] == "127.0.0.1":
             return self.send_json(jobs_snapshot())
+        sp = self.need_space()
+        if not sp:
+            return
+        lib = sp.lib
+        if parts == ["api", "space"]:
+            return self.send_json({"used": sp.used(), "quota": sp.quota, "multiuser": bool(USERS_ROOT),
+                                   "user": self.headers.get("X-User-Name") if USERS_ROOT else None})
+        if parts == ["api", "library"]:
+            return self.send_json(library(lib))
+        if len(parts) == 3 and parts[:2] == ["api", "video"] and VID_RE.match(parts[2]):
+            if not mpath(lib, parts[2]).exists():
+                return self.err("Video non trovato", 404)
+            return self.send_json(load_meta(lib, parts[2]))
+        if parts == ["api", "jobs"]:
+            return self.send_json(jobs_snapshot(sp.uid))
         if len(parts) == 3 and parts[:2] == ["api", "jobs"]:
             with LOCK:
                 j = JOBS.get(parts[2])
-                j = dict(j) if j else None
+                j = {k: v for k, v in j.items() if k != "owner"} if j and j["owner"] == sp.uid else None
             return self.send_json(j) if j else self.err("Job non trovato", 404)
         if len(parts) == 3 and parts[0] == "media" and VID_RE.match(parts[1]):
             vid, name = parts[1], parts[2]
             if "/" in name or "\\" in name or name.startswith("."):
                 return self.err("Nome non valido")
-            p = LIB / vid / name
+            p = lib / vid / name
             if not p.is_file():
                 return self.err("File non trovato", 404)
             dl = None
             if "dl" in parse_qs(u.query):
-                title = re.sub(r'[\\/:*?"<>|]+', "_", load_meta(vid)["title"])[:120]
+                title = re.sub(r'[\\/:*?"<>|]+', "_", load_meta(lib, vid)["title"])[:120]
                 dl = f"{title} - {name.replace('export_', '')}" if name.startswith("export_") \
                     else f"{title}{p.suffix}"
             return self.send_file(p, dl)
@@ -543,11 +663,15 @@ class H(BaseHTTPRequestHandler):
         if self.cross_site():
             self.drain()
             return self.err("Richiesta non consentita", 403)
+        sp = self.need_space()
+        if not sp:
+            return
+        lib = sp.lib
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         if parts == ["api", "import"]:
-            return self.import_file()
+            return self.import_file(sp)
         if parts[:2] == ["api", "upload"]:
-            return self.upload_post(parts[2:])
+            return self.upload_post(sp, parts[2:])
         try:
             data = self.body()
         except Exception:
@@ -559,39 +683,47 @@ class H(BaseHTTPRequestHandler):
             urls = list(dict.fromkeys(u.strip() for u in raw if re.match(r"^https?://\S+$", u.strip())))
             if not urls:
                 return self.err("Inserisci almeno un link valido")
+            try:
+                sp.need(50 << 20, "scaricare un video")
+            except QuotaError as e:
+                return self.err(str(e), 413)
             q = str(data.get("quality", "720"))
             jobs = []
             for u in urls[:50]:
-                jid = new_job("download", url=u, audio=q == "audio")
-                run_job(jid, job_download, u, q, sem=DL_SEM)
+                jid = new_job("download", owner=sp.uid, url=u, audio=q == "audio")
+                run_job(jid, job_download, sp, u, q, sem=DL_SEM)
                 jobs.append(jid)
             return self.send_json({"jobs": jobs})
         vid = data.get("id", "")
-        if not VID_RE.match(vid) or not mpath(vid).exists():
+        if not VID_RE.match(vid) or not mpath(lib, vid).exists():
             return self.err("Video non trovato", 404)
         if parts == ["api", "archive"]:
-            m = load_meta(vid)
+            m = load_meta(lib, vid)
             m["archived"] = bool(data.get("archived", True))
-            save_meta(m)
+            save_meta(lib, m)
             return self.send_json(m)
         if parts == ["api", "analyze"]:
             noise = max(-80.0, min(-5.0, float(data.get("noise", -35))))
             mind = max(0.1, min(10.0, float(data.get("min", 0.6))))
             pad = max(0.0, min(1.0, float(data.get("pad", 0.12))))
-            jid = new_job("analyze", vid, title=load_meta(vid)["title"])
-            run_job(jid, job_analyze, vid, noise, mind, pad, sem=CPU_SEM)
+            jid = new_job("analyze", vid, owner=sp.uid, title=load_meta(lib, vid)["title"])
+            run_job(jid, job_analyze, lib, vid, noise, mind, pad, sem=CPU_SEM)
             return self.send_json({"job": jid})
         if parts == ["api", "export"]:
             speed = max(0.25, min(4.0, float(data.get("speed", 1))))
             remove = bool(data.get("remove", True))
             if not remove and abs(speed - 1) < 1e-3:
                 return self.err("Niente da esportare: scegli una velocita' o rimuovi i silenzi")
-            jid = new_job("export", vid, title=load_meta(vid)["title"])
-            run_job(jid, job_export, vid, round(speed, 3), remove, sem=CPU_SEM)
+            m = load_meta(lib, vid)
+            f = sp.free()
+            if f is not None and f < (20 << 20):
+                return self.err(f"Spazio esaurito: hai usato tutti i {gb(sp.quota)}. Elimina qualche video o esportazione.", 413)
+            jid = new_job("export", vid, owner=sp.uid, title=m["title"])
+            run_job(jid, job_export, sp, vid, round(speed, 3), remove, sem=CPU_SEM)
             return self.send_json({"job": jid})
         self.err("Non trovato", 404)
 
-    def import_file(self):
+    def import_file(self, sp):
         """Upload in un'unica richiesta (versione locale / compatibilita')."""
         from urllib.parse import unquote
         name = unquote(self.headers.get("X-Filename", "video.mp4"))
@@ -599,8 +731,13 @@ class H(BaseHTTPRequestHandler):
         if not FFMPEG or ext not in PLAYABLE + CONVERT:
             self.drain()
             return self.err("ffmpeg non trovato" if not FFMPEG else f"Formato {ext or 'sconosciuto'} non supportato")
+        try:
+            sp.need(int(self.headers.get("Content-Length") or 0) * (2 if ext in CONVERT else 1), "caricare questo file")
+        except QuotaError as e:
+            self.drain()
+            return self.err(str(e), 413)
         vid = uuid.uuid4().hex[:10]
-        d = LIB / vid
+        d = sp.lib / vid
         d.mkdir()
         dst = d / ("video" + ext)
         try:
@@ -609,14 +746,14 @@ class H(BaseHTTPRequestHandler):
                     f.write(chunk)
             if dst.stat().st_size == 0:
                 raise RuntimeError("Il file e' arrivato vuoto")
-            m = finalize(vid, dst, Path(name).stem, "file locale")
+            m = finalize(sp.lib, vid, dst, Path(name).stem, "file locale")
         except Exception as e:
             shutil.rmtree(d, ignore_errors=True)
             return self.err(str(e) or "Importazione non riuscita", 500)
         self.send_json(m)
 
     # ---- upload a pezzi: POST api/upload {name,size} -> PUT api/upload/<id>?offset=N -> POST api/upload/<id>/done
-    def upload_post(self, rest):
+    def upload_post(self, sp, rest):
         try:
             data = self.body()
         except Exception:
@@ -631,35 +768,39 @@ class H(BaseHTTPRequestHandler):
                 return self.err(f"Formato {ext or 'sconosciuto'} non supportato")
             if size <= 0:
                 return self.err("Il file e' vuoto")
-            free = shutil.disk_usage(LIB).free
+            try:  # i formati da convertire occupano il doppio finche' la conversione non finisce
+                sp.need(size * (2 if ext in CONVERT else 1), "caricare questo file")
+            except QuotaError as e:
+                return self.err(str(e), 413)
+            free = shutil.disk_usage(sp.lib).free
             if size * (2 if ext in CONVERT else 1) + (200 << 20) > free:
                 return self.err(f"Spazio insufficiente sul server ({free / 1e9:.1f} GB liberi)", 507)
             vid = uuid.uuid4().hex[:10]
-            d = LIB / vid
+            d = sp.lib / vid
             d.mkdir()
             title = Path(name).stem
-            jid = new_job("upload", vid, title=title)
+            jid = new_job("upload", vid, owner=sp.uid, title=title)
             upd(jid, status="running", message="Caricamento 0%")
             with UP_LOCK:
-                UPLOADS[vid] = {"path": d / ("video" + ext + ".part"), "ext": ext, "size": size, "got": 0,
-                                "jid": jid, "title": title, "lock": threading.Lock(), "seen": time.time()}
+                UPLOADS[vid] = {"path": d / ("video" + ext + ".part"), "ext": ext, "size": size, "got": 0, "uid": sp.uid,
+                                "lib": sp.lib, "jid": jid, "title": title, "lock": threading.Lock(), "seen": time.time()}
             UPLOADS[vid]["path"].touch()
             return self.send_json({"id": vid, "job": jid})
         up = UPLOADS.get(rest[0])
-        if not up:
+        if not up or up["uid"] != sp.uid:
             return self.err("Caricamento non trovato o scaduto", 404)
         if rest[1:] == ["done"]:
             if up["got"] != up["size"]:
                 return self.err(f"Caricamento incompleto ({up['got']} di {up['size']} byte)", 409)
             with UP_LOCK:
                 UPLOADS.pop(rest[0], None)
-            vid, jid = rest[0], up["jid"]
+            vid, jid, lib = rest[0], up["jid"], up["lib"]
             dst = up["path"].with_name("video" + up["ext"])
             os.replace(up["path"], dst)
 
             def work(jid):
                 upd(jid, progress=0.97, message="Creo anteprima...")
-                m = finalize(vid, dst, up["title"], "file locale", jid)
+                m = finalize(lib, vid, dst, up["title"], "file locale", jid)
                 upd(jid, result={"video": vid}, message=m["title"])
 
             def worker():
@@ -667,7 +808,7 @@ class H(BaseHTTPRequestHandler):
                     work(jid)
                     upd(jid, status="done", progress=1.0, ended=time.time())
                 except Exception as e:  # noqa
-                    shutil.rmtree(LIB / vid, ignore_errors=True)
+                    shutil.rmtree(lib / vid, ignore_errors=True)
                     upd(jid, status="error", message=str(e).strip()[-400:] or "Errore", ended=time.time())
             threading.Thread(target=worker, daemon=True).start()
             return self.send_json({"job": jid})
@@ -677,10 +818,13 @@ class H(BaseHTTPRequestHandler):
         if self.cross_site():
             self.drain()
             return self.err("Richiesta non consentita", 403)
+        sp = self.need_space()
+        if not sp:
+            return
         u = urlparse(self.path)
         parts = [p for p in u.path.split("/") if p]
         up = UPLOADS.get(parts[2]) if len(parts) == 3 and parts[:2] == ["api", "upload"] else None
-        if not up:
+        if not up or up["uid"] != sp.uid:
             self.drain()
             return self.err("Caricamento non trovato o scaduto", 404)
         offset = int((parse_qs(u.query).get("offset") or ["0"])[0])
@@ -706,26 +850,31 @@ class H(BaseHTTPRequestHandler):
     def do_DELETE(self):
         if self.cross_site():
             return self.err("Richiesta non consentita", 403)
+        sp = self.need_space()
+        if not sp:
+            return
+        lib = sp.lib
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         if len(parts) == 3 and parts[:2] == ["api", "upload"]:
             with UP_LOCK:
-                up = UPLOADS.pop(parts[2], None)
+                up = UPLOADS.get(parts[2])
+                up = UPLOADS.pop(parts[2]) if up and up["uid"] == sp.uid else None
             if up:
-                shutil.rmtree(LIB / parts[2], ignore_errors=True)
+                shutil.rmtree(lib / parts[2], ignore_errors=True)
                 upd(up["jid"], status="error", message="Caricamento annullato", ended=time.time())
             return self.send_json({"ok": True})
         if len(parts) >= 3 and parts[:2] == ["api", "video"] and VID_RE.match(parts[2]):
             vid = parts[2]
             if len(parts) == 3:
-                shutil.rmtree(LIB / vid, ignore_errors=True)
+                shutil.rmtree(lib / vid, ignore_errors=True)
                 return self.send_json({"ok": True})
-            if len(parts) == 5 and parts[3] == "export":
-                m = load_meta(vid)
+            if len(parts) == 5 and parts[3] == "export" and mpath(lib, vid).exists():
+                m = load_meta(lib, vid)
                 names = [e["file"] for e in m["exports"]]
                 if parts[4] in names:
-                    (LIB / vid / parts[4]).unlink(missing_ok=True)
+                    (lib / vid / parts[4]).unlink(missing_ok=True)
                     m["exports"] = [e for e in m["exports"] if e["file"] != parts[4]]
-                    save_meta(m)
+                    save_meta(lib, m)
                 return self.send_json(m)
         self.err("Non trovato", 404)
 
@@ -739,7 +888,7 @@ def janitor():
             stale = [k for k, u in UPLOADS.items() if now - u["seen"] > 3600]
             for k in stale:
                 u = UPLOADS.pop(k)
-                shutil.rmtree(LIB / k, ignore_errors=True)
+                shutil.rmtree(u["lib"] / k, ignore_errors=True)
                 upd(u["jid"], status="error", message="Caricamento scaduto", ended=now)
 
 

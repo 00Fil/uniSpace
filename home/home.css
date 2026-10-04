@@ -34,7 +34,7 @@ html.lock{overflow:hidden}
 .logo{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.02em;font-size:15.5px;position:relative;z-index:1}
 .mark{width:22px;height:22px;display:grid;grid-template-columns:1fr 1fr;gap:2.5px;padding:2px}
 .mark i{background:var(--text);border-radius:2.5px;transition:transform .5s var(--e-spring)}
-.mark i.d{border-radius:50%;transform:scale(.8)}
+.mark i.d{transform:scale(.8)}
 .logo:hover .mark i:nth-child(1){transform:rotate(90deg)}
 /* ricerca nella barra: compare solo quando quella dell'hero sparisce sotto l'header */
 .nsearch{position:absolute;left:50%;top:50%;width:min(460px,calc(100% - 340px));height:38px;margin-left:calc(min(460px,calc(100% - 340px)) / -2);margin-top:-19px;
@@ -338,4 +338,33 @@ svg .f{fill:currentColor;stroke:none}
   .sh-act .btn{height:44px;padding:0 18px}
   .sh-sv b{font-size:clamp(52px,15vw,90px)}
   .sh-cmp b{font-size:clamp(48px,14vw,90px)}
+}
+
+/* ================================================================ account (in alto a destra) */
+.acct{margin-left:auto;position:relative;z-index:2}
+.acct-b{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:#1c1c1f;box-shadow:inset 0 0 0 1px #2a2a2e;font-weight:650;font-size:14px;text-transform:uppercase;
+  transition:transform var(--d-3) var(--e-spring),background var(--d-2)}
+.acct-b:active{transform:scale(.92)}
+.acct-b[aria-expanded=true]{background:#26262a}
+.acct-m{position:absolute;right:0;top:calc(100% + 10px);width:280px;padding:6px;border-radius:16px;background:#0d0d0f;box-shadow:0 0 0 1px #232326,0 30px 70px -20px #000;
+  transform-origin:100% 0;animation:acctIn .42s var(--e-spring)}
+@keyframes acctIn{from{opacity:0;transform:translateY(-6px) scale(.96)}}
+.acct-h{display:flex;align-items:center;gap:12px;padding:12px 12px 14px}
+.acct-av{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:#ededee;color:#111113;font-weight:700;font-size:16px;text-transform:uppercase;flex:none}
+.acct-h b{display:block;font-weight:620;font-size:14.5px;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px}
+.acct-h small{display:block;font-size:12px;color:var(--faint)}
+.acct-s{padding:14px 12px;border-top:1px solid #1c1c1f;border-bottom:1px solid #1c1c1f}
+.acct-st{display:flex;justify-content:space-between;font-size:12px;color:var(--faint);font-weight:560;font-variant-numeric:tabular-nums}
+.acct-st span:last-child{color:var(--text)}
+.acct-bar{height:5px;border-radius:5px;background:#1f1f22;margin-top:10px;overflow:hidden}
+.acct-bar i{display:block;height:100%;background:var(--text);transform-origin:left;transform:scaleX(0);transition:transform .9s var(--e-out)}
+.acct-s.full .acct-bar i{background:var(--err)}
+.acct-s.full .acct-st span:last-child{color:var(--err)}
+.acct-s p{font-size:12px;color:var(--faint);margin-top:10px;line-height:1.4}
+.acct-x{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 12px;margin-top:6px;border-radius:10px;font-size:13.5px;color:var(--muted);transition:background var(--d-2),color var(--d-2)}
+.acct-x svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+@media (hover:hover){.acct-b:hover{background:#26262a}.acct-x:hover{background:#1c1c1f;color:var(--text)}}
+@media (max-width:760px){
+  .nsearch{right:calc(max(14px,env(safe-area-inset-right)) + 46px);width:calc(100% - 196px)}
+  .acct-m{width:min(280px,calc(100vw - 28px))}
 }
