@@ -298,40 +298,24 @@ svg .f{fill:currentColor;stroke:none}
 .dm{border-radius:20px;padding:20px 22px 18px;background:rgba(8,8,12,.5);backdrop-filter:blur(22px) saturate(150%);-webkit-backdrop-filter:blur(22px) saturate(150%);
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),inset 0 1px 0 rgba(255,255,255,.18),0 40px 80px -30px rgba(0,0,0,.8)}
 
-/* demo "cut" — ciclo di 7 s: onda → pause evidenziate → pause tolte → tempo e velocità */
-.dm-cut{--T:7s}
+/* demo "cut" (animata da DEMOS.cut.run in home.js) */
 .dm-row{display:flex;align-items:center;justify-content:space-between;height:26px}
-.dm-lbl,.dm-x,.dm-time{display:grid}
-.dm-lbl>*,.dm-x>*,.dm-time>*{grid-area:1/1}
-.dm-lbl{font-size:13px;color:var(--muted);font-weight:500}
-.dm-x{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.08);color:#fff;place-items:center;min-width:44px}
-.dm-wave{display:flex;align-items:center;height:96px;margin:16px 0 14px;gap:0}
-.seg{flex:var(--w) 1 0;display:flex;align-items:center;justify-content:space-around;height:100%;overflow:hidden;min-width:0;border-radius:8px}
-.seg i{flex:none;width:3px;height:var(--h);border-radius:3px;background:#fff;transform-origin:center;transform:scaleY(0)}
-.seg.sil i{background:rgba(255,255,255,.35)}
+.dm-lbl{font-size:13px;color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
+.dm-x{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.1);color:#fff;min-width:44px;text-align:center}
+.dm-wave{position:relative;display:flex;align-items:center;height:92px;margin:16px 0 14px;opacity:calc(1 - var(--out,0))}
+.seg{--p:0;--flash:0;--gone:0;flex-basis:0;flex-shrink:1;min-width:0;height:100%;display:flex;align-items:center;justify-content:space-around;position:relative;overflow:hidden;border-radius:8px;
+  -webkit-mask-image:linear-gradient(90deg,#000 calc(var(--p) * 100%),rgba(0,0,0,.38) calc(var(--p) * 100%));mask-image:linear-gradient(90deg,#000 calc(var(--p) * 100%),rgba(0,0,0,.38) calc(var(--p) * 100%))}
+.seg i{flex:none;width:3px;border-radius:3px;background:#fff;transform:scaleY(0);will-change:transform}
+.seg.sil{-webkit-mask-image:none;mask-image:none;background:rgba(255,80,80,calc(var(--flash) * .28));box-shadow:inset 0 0 0 1px rgba(255,90,90,calc(var(--flash) * .7))}
+.seg.sil i{background:rgba(255,255,255,.35);opacity:calc(1 - var(--gone))}
+.seg.sil b{position:absolute;left:50%;top:6px;translate:-50% 0;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#ff8f8f;opacity:var(--flash);white-space:nowrap}
+.dm-head{position:absolute;left:0;top:-6px;bottom:-6px;width:2px;margin-left:-1px;border-radius:2px;background:#fff;box-shadow:0 0 12px rgba(160,190,255,.9),0 0 2px #fff;opacity:0;will-change:transform}
+.dm-bot{display:flex;align-items:baseline;gap:12px}
 .dm-time{font-size:44px;font-weight:700;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums}
-.dm .b{opacity:0}
-
-.slide.cur .seg i{animation:barIn var(--T) var(--e-out) infinite}
-.slide.cur .seg i:nth-child(3n+1){animation-name:barIn,barBeat;animation-duration:var(--T),.6s;animation-timing-function:var(--e-out),ease-in-out}
-.slide.cur .seg.sil{animation:silGone var(--T) var(--e-inout) infinite}
-.slide.cur .seg.sil i{animation:barIn var(--T) var(--e-out) infinite}
-.slide.cur .dm .a{animation:swapA var(--T) var(--e-out) infinite}
-.slide.cur .dm .b{animation:swapB var(--T) var(--e-out) infinite}
-.slide.cur .dm-x .b{animation:swapB var(--T) var(--e-out) infinite,pop var(--T) infinite}
-.slide.cur .dm-time .b{animation:swapB var(--T) var(--e-out) infinite;color:#fff}
-.slide.cur .dm-time .a{animation:swapA var(--T) var(--e-out) infinite;color:#fff}
-@keyframes barIn{0%{transform:scaleY(0)}12%,90%{transform:scaleY(1)}100%{transform:scaleY(0)}}
-@keyframes barBeat{50%{scale:1 .82}}
-/* le pause si accendono di rosso e poi si chiudono */
-@keyframes silGone{0%,22%{flex-grow:var(--w);background:transparent}
-  28%,40%{flex-grow:var(--w);background:rgba(255,92,92,.18);box-shadow:inset 0 0 0 1px rgba(255,92,92,.45)}
-  54%,92%{flex-grow:0;background:rgba(255,92,92,0);box-shadow:none}
-  100%{flex-grow:var(--w)}}
-@keyframes swapA{0%,50%{opacity:1;transform:none;filter:none}56%,92%{opacity:0;transform:translateY(-35%);filter:blur(4px)}100%{opacity:1;transform:none;filter:none}}
-@keyframes swapB{0%,52%{opacity:0;transform:translateY(35%);filter:blur(4px)}60%,90%{opacity:1;transform:none;filter:none}96%,100%{opacity:0}}
-@keyframes pop{0%,56%{scale:1}61%{scale:1.25}68%,100%{scale:1}}
-@media (prefers-reduced-motion:reduce){.slide.cur .dm *{animation:none!important}.seg i{transform:none}.seg.sil{display:none}.dm .a{opacity:0}.dm .b{opacity:1}}
+.dm-save{font-size:15px;font-weight:700;color:#7fe0a5;opacity:0;transform:translateY(6px) scale(.9);transition:opacity .25s,transform .45s cubic-bezier(.3,1.5,.5,1)}
+.dm-cut.done .dm-save{opacity:1;transform:none}
+.dm-cut.done .dm-time{color:#fff;text-shadow:0 0 24px rgba(127,224,165,.35)}
+.dm-time{transition:text-shadow .4s}
 
 @media (max-width:1020px){.s-demo{display:none}}
 @media (max-width:760px){

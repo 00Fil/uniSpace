@@ -201,20 +201,83 @@ addEventListener('pageshow', e => { if (e.persisted) { pal.hidden = true; docume
 
 /* ---------------------------------------------------------------- carosello */
 // in evidenza: i tool con "featured" nel tool.json (al massimo 6)
-/* demo animate per le copertine: "featured.demo" nel tool.json sceglie quale usare */
+/* demo animate per le copertine: "featured.demo" nel tool.json sceglie quale usare.
+   html() crea il markup, run(el) lo anima e restituisce { start, stop }. */
+const ease = t => t <= 0 ? 0 : t >= 1 ? 1 : 1 - Math.pow(1 - t, 3);
+const easeIO = t => t <= 0 ? 0 : t >= 1 ? 1 : t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const clock = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
 const DEMOS = {
-  // una lezione: le pause si evidenziano, spariscono, il tempo scende e la velocità sale
-  cut: () => {
-    const segs = [[9, 0], [3, 1], [7, 0], [4, 1], [11, 0], [2, 1], [6, 0], [3, 1], [8, 0]];
-    let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
-    const wave = segs.map(([w, sil]) => `<div class="seg${sil ? ' sil' : ''}" style="--w:${w}">${Array.from({ length: Math.round(w * 1.4) }, () =>
-      `<i style="--h:${sil ? 6 + rnd() * 6 : 22 + rnd() * 78}%"></i>`).join('')}</div>`).join('');
-    return `<div class="dm dm-cut">
-      <div class="dm-row"><span class="dm-lbl"><span class="a">Lezione originale</span><span class="b">Senza pause</span></span>
-        <span class="dm-x"><span class="a">1×</span><span class="b">2×</span></span></div>
-      <div class="dm-wave">${wave}</div>
-      <div class="dm-time"><span class="a">1:32:10</span><span class="b">29:20</span></div>
-    </div>`;
+  // la testina scorre la lezione: ogni pausa si accende e sparisce, il tempo scende e la velocità sale
+  cut: {
+    segs: [[9, 0], [3, 1], [7, 0], [4, 1], [11, 0], [2, 1], [6, 0], [3, 1], [8, 0]],
+    html() {
+      let seed = 11; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+      const wave = this.segs.map(([w, sil]) => `<div class="seg${sil ? ' sil' : ''}" style="flex-grow:${w}">${Array.from({ length: Math.round(w * 1.5) }, () =>
+        `<i style="height:${sil ? 5 + rnd() * 5 : 26 + rnd() * 74}%"></i>`).join('')}${sil ? '<b>pausa</b>' : ''}</div>`).join('');
+      return `<div class="dm dm-cut">
+        <div class="dm-row"><span class="dm-lbl">Lezione originale</span><span class="dm-x">1×</span></div>
+        <div class="dm-wave">${wave}<span class="dm-head"></span></div>
+        <div class="dm-bot"><span class="dm-time">1:32:10</span><span class="dm-save">−68%</span></div>
+      </div>`;
+    },
+    run(root) {
+      const segEls = [...root.querySelectorAll('.seg')], bars = [...root.querySelectorAll('.seg i')], wave = root.querySelector('.dm-wave');
+      const head = root.querySelector('.dm-head'), lbl = root.querySelector('.dm-lbl'), chip = root.querySelector('.dm-x');
+      const time = root.querySelector('.dm-time'), save = root.querySelector('.dm-save');
+      const W = this.segs.map(s => s[0]), SIL = this.segs.map(s => s[1]);
+      const SPEED = [1, 1, 1.5, 1.5, 2]; // velocità per ogni tratto parlato
+      // programma: entrata 350 ms, parlato ~1900 ms (accelera), ogni pausa si chiude in 220 ms, attesa, uscita
+      const plan = []; let t = 350, v = 0;
+      const units = W.map((w, i) => SIL[i] ? 0 : w / SPEED[this.segs.slice(0, i).filter(s => !s[1]).length]);
+      const k = 1900 / units.reduce((a, b) => a + b, 0);
+      W.forEach((w, i) => { const d = SIL[i] ? 220 : units[i] * k; plan.push({ i, t0: t, t1: t + d, sil: SIL[i], spd: SIL[i] ? null : SPEED[v] }); if (!SIL[i]) v++; t += d; });
+      const playEnd = t, HOLD = 950, OUT = 320, CYCLE = playEnd + HOLD + OUT;
+      const T0 = 5530, T1 = 1760; let raf = 0, t0 = 0, lastSpd = 0, lastCut = -1, lastCyc = 0;
+      const phase = bars.map((_, j) => j * 1.7);
+      const set = (el, txt) => { if (el.textContent !== txt) el.textContent = txt; };
+      const pop = el => el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.22)' }, { transform: 'scale(1)' }], { duration: 320, easing: 'cubic-bezier(.3,1.6,.5,1)' });
+      function frame(now) {
+        const c = (now - t0) % CYCLE, cyc = Math.floor((now - t0) / CYCLE);
+        if (cyc !== lastCyc) { lastCyc = cyc; lastSpd = 0; lastCut = -1; }
+        const out = c > playEnd + HOLD ? easeIO((c - playEnd - HOLD) / OUT) : 0;
+        root.style.setProperty('--out', out.toFixed(3));
+        // pause: si accendono di rosso e si chiudono
+        let cuts = 0, cur = plan[0], spd = 1, prog = 0;
+        for (const p of plan) {
+          const q = Math.max(0, Math.min(1, (c - p.t0) / (p.t1 - p.t0)));
+          if (p.sil) {
+            const e = easeIO(q); segEls[p.i].style.flexGrow = (W[p.i] * (1 - e)).toFixed(3);
+            segEls[p.i].style.setProperty('--flash', Math.sin(Math.PI * Math.min(1, q * 1.4)).toFixed(3));
+            segEls[p.i].style.setProperty('--gone', e.toFixed(3));
+            if (q >= 1) cuts++;
+          } else { segEls[p.i].style.setProperty('--p', q.toFixed(3)); if (c >= p.t0) spd = p.spd; }
+          if (c >= p.t0 && c < p.t1) { cur = p; prog = q; }
+        }
+        if (c >= playEnd) { cur = plan[plan.length - 1]; prog = 1; }
+        // testina
+        const se = segEls[cur.i], x = se.offsetLeft + se.offsetWidth * (cur.sil ? 0 : prog);
+        head.style.transform = `translateX(${x.toFixed(1)}px)`;
+        head.style.opacity = c < 300 ? 0 : c > playEnd ? Math.max(0, 1 - (c - playEnd) / 260) : 1;
+        // barre: entrano a onda e "parlano" più veloci quando sale la velocità
+        const tt = now / 1000;
+        bars.forEach((b, j) => { const inn = ease((c - j * 4) / 320); const beat = 0.82 + 0.18 * Math.sin(tt * 9 * spd + phase[j]);
+          b.style.transform = `scaleY(${(inn * (c > 300 ? beat : 1) * (1 - out * .9)).toFixed(3)})`; });
+        // testi
+        if (spd !== lastSpd) { lastSpd = spd; set(chip, `${String(spd).replace('.', ',')}×`); if (c > 400) pop(chip); }
+        if (cuts !== lastCut) { lastCut = cuts; set(lbl, cuts ? `${cuts} paus${cuts === 1 ? 'a tolta' : 'e tolte'}` : 'Lezione originale'); }
+        const g = Math.min(1, Math.max(0, (c - 350) / (playEnd - 350))); // lineare: il tempo scende costante con la testina
+        set(time, clock(T0 + (T1 - T0) * g));
+        root.classList.toggle('done', c >= playEnd && c < playEnd + HOLD + OUT * .5);
+        raf = requestAnimationFrame(frame);
+      }
+      const final = () => { segEls.forEach((e, i) => { if (SIL[i]) { e.style.flexGrow = 0; e.style.setProperty('--gone', 1); } else e.style.setProperty('--p', 1); });
+        bars.forEach(b => b.style.transform = 'scaleY(1)'); set(time, clock(T1)); set(chip, '2×'); set(lbl, '4 pause tolte'); root.classList.add('done'); };
+      return {
+        start() { if (raf) return; if (reduce) return final(); t0 = performance.now(); lastSpd = 0; lastCut = -1; raf = requestAnimationFrame(frame); },
+        stop() { cancelAnimationFrame(raf); raf = 0; },
+      };
+    },
   },
 };
 const FEAT = TOOLS.filter(t => t.featured).slice(0, 6).map(t => ({ id: t.id, fx: 'shapes', ...t.featured }));
@@ -223,7 +286,7 @@ if (FEAT.length < 2) { $('.car-nav').hidden = true; $('#tabs').hidden = true; }
 $('#tabs').style.setProperty('--n', Math.max(FEAT.length, 1));
 const car = $('#car'), track = $('#track');
 track.innerHTML = FEAT.map((f, i) => { const t = TOOL[f.id], c = CAT[t.cat];
-  const demo = f.demoHtml || (DEMOS[f.demo] ? DEMOS[f.demo]() : '');
+  const demo = f.demoHtml || (DEMOS[f.demo] ? DEMOS[f.demo].html() : '');
   return `<article class="slide${demo ? ' has-demo' : ''}" data-i="${i}" style="--cc:${c.c}" aria-label="${esc(t.name)}">
     <canvas></canvas>
     <div class="s-copy">
@@ -236,6 +299,7 @@ track.innerHTML = FEAT.map((f, i) => { const t = TOOL[f.id], c = CAT[t.cat];
   </article>`; }).join('');
 $('#tabs').innerHTML = FEAT.map((f, i) => `<button class="tab" role="tab" data-i="${i}" aria-label="${esc(TOOL[f.id].name)}"><i></i><span class="tn">${tIcon(TOOL[f.id])}${esc(TOOL[f.id].name)}</span><small>${esc(CAT[TOOL[f.id].cat].name)}</small></button>`).join('');
 const slides = $$('.slide'), tabs = $$('.tab'), N = slides.length;
+const demos = slides.map((s, i) => { const d = DEMOS[FEAT[i].demo], el = s.querySelector('.dm'); return d && d.run && el ? d.run(el) : null; });
 // effetti WebGL: uno per slide, acceso solo quello visibile
 const fx = slides.map((s, i) => {
   const f = FEAT[i], cv = s.querySelector('canvas');
@@ -270,7 +334,9 @@ function runFx() {
   fx.forEach((f, i) => { if (!f) return;
     if (i === cur && carVisible) { f.relayout && f.relayout(); f.start(); }
     else fxTimers.push(setTimeout(() => f.stop(), 800)); });
+  demos.forEach((d, i) => d && (i === cur && carVisible && !document.hidden ? d.start() : d.stop()));
 }
+document.addEventListener('visibilitychange', () => runFx());
 function go(i) { if (!N) return; cur = (i + N) % N; layout(); restartAuto(); }
 $('#prev').onclick = () => go(cur - 1); $('#next').onclick = () => go(cur + 1);
 tabs.forEach(t => t.onclick = () => go(+t.dataset.i));
