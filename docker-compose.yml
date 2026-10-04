@@ -9,9 +9,6 @@ services:
       context: .
       dockerfile: gateway/Dockerfile
     restart: unless-stopped
-    environment:
-      HUB_USER: ${HUB_USER:-studente}
-      HUB_PASSWORD: ${HUB_PASSWORD:-}
     expose:
       - "80"
     networks:

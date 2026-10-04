@@ -11,12 +11,11 @@ RUN node scripts/build-registry.mjs tools dist
 # 2) Caddy serve la home e inoltra /<tool>/ al container giusto
 FROM caddy:2-alpine
 COPY gateway/Caddyfile /etc/caddy/Caddyfile
-COPY gateway/entrypoint.sh /entrypoint.sh
 COPY home/ /srv/home/
 COPY --from=registry /build/dist/site/tools.json /srv/home/tools.json
 COPY --from=registry /build/dist/routes/ /etc/caddy/routes/
 COPY --from=registry /build/dist/static/ /srv/tools/
-RUN chmod +x /entrypoint.sh && rm -f /srv/home/LEGGIMI.md
+RUN rm -f /srv/home/LEGGIMI.md
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD wget -qO- http://127.0.0.1/healthz || exit 1
-ENTRYPOINT ["/entrypoint.sh"]
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

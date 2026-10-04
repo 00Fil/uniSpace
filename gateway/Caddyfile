@@ -9,8 +9,6 @@
 	}
 }
 
-import /etc/caddy/auth.caddy
-
 :80 {
 	encode zstd gzip
 

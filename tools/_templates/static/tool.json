@@ -2,7 +2,6 @@
   "id": "__ID__",
   "name": "__NAME__",
   "type": "static",
-  "auth": false,
   "category": "plan",
   "icon": "box",
   "order": 100,

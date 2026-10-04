@@ -3,7 +3,6 @@
   "name": "__NAME__",
   "type": "service",
   "upstream": "__ID__:8000",
-  "auth": true,
   "category": "plan",
   "icon": "box",
   "order": 100,

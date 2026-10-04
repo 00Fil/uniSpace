@@ -3,7 +3,6 @@
   "name": "StudyCut",
   "type": "service",
   "upstream": "studycut:8765",
-  "auth": true,
   "maxUpload": "4GB",
   "category": "video",
   "icon": "cut",

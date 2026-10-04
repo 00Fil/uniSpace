@@ -36,18 +36,17 @@ for (const dir of fs.readdirSync(toolsDir, { withFileTypes: true })) {
   if (!['static', 'service', 'link'].includes(type)) fail(`${file}: "type" deve essere static, service o link`);
 
   const p = `/${t.id}/`;
-  const auth = t.auth ? '\timport hub_auth\n' : '';
   let route = `# ${t.name} (${type})\nredir /${t.id} ${p} 308\n`;
   if (type === 'service') {
     if (!/^[\w.-]+:\d+$/.test(t.upstream || '')) fail(`${file}: "upstream" obbligatorio per i service (es. "mio-tool:8000")`);
-    route += `handle_path ${p}* {\n${auth}` +
+    route += `handle_path ${p}* {\n` +
       (t.maxUpload ? `\trequest_body {\n\t\tmax_size ${t.maxUpload}\n\t}\n` : '') +
       `\treverse_proxy ${t.upstream} {\n\t\tflush_interval -1\n\t}\n}\n`;
   } else if (type === 'static') {
     const pub = path.join(toolsDir, t.id, 'public');
     if (!fs.existsSync(path.join(pub, 'index.html'))) fail(`${t.id}: i tool statici devono avere public/index.html`);
     fs.cpSync(pub, path.join(outDir, 'static', t.id), { recursive: true });
-    route += `handle_path ${p}* {\n${auth}\troot * /srv/tools/${t.id}\n\tfile_server\n}\n`;
+    route += `handle_path ${p}* {\n\troot * /srv/tools/${t.id}\n\tfile_server\n}\n`;
   } else {
     if (!/^https?:\/\//.test(t.url || '')) fail(`${file}: "url" obbligatorio per i link`);
     route = '';
@@ -60,7 +59,7 @@ for (const dir of fs.readdirSync(toolsDir, { withFileTypes: true })) {
     url: type === 'link' ? t.url : p, external: type === 'link',
     isNew: !!t.isNew, order: t.order ?? 100, featured: t.featured || null,
   });
-  console.log(`+ ${t.id.padEnd(16)} ${type.padEnd(8)} ${type === 'link' ? t.url : p}${t.auth ? '  (password)' : ''}`);
+  console.log(`+ ${t.id.padEnd(16)} ${type.padEnd(8)} ${type === 'link' ? t.url : p}`);
 }
 tools.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 fs.writeFileSync(path.join(outDir, 'site', 'tools.json'),

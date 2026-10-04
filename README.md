@@ -22,7 +22,7 @@ studykit/
 
 ```
 Internet → Traefik (Dokploy, HTTPS) → gateway:80 ─┬─ /            home
-                                                  ├─ /studycut/   → studycut:8765   (password)
+                                                  ├─ /studycut/   → studycut:8765
                                                   └─ /<tool>/     → altri tool
 ```
 
@@ -43,16 +43,12 @@ Crea un repository (GitHub, GitLab, Gitea o Bitbucket) e fai il push di questa c
 3. Scheda **General** → Provider: scegli il repository e il branch, **Compose Path** `./docker-compose.yml`. Salva.
 
 ### 3. Variabili d'ambiente
-Scheda **Environment**: incolla il contenuto di `.env.example` e cambia almeno `HUB_PASSWORD`.
+Scheda **Environment**: incolla il contenuto di `.env.example` (facoltativo: senza variabili valgono i default).
 
 | Variabile | Default | A cosa serve |
 |---|---|---|
-| `HUB_USER` | `studente` | utente per i tool protetti |
-| `HUB_PASSWORD` | vuota | password per i tool con `"auth": true`. Se è vuota, i tool protetti restano **aperti** |
 | `STUDYCUT_PARALLEL` | `3` | download contemporanei |
 | `YTDLP_AUTO_UPDATE` | `1` | aggiorna yt-dlp all'avvio e ogni 24 ore |
-
-Evita il carattere `$` nella password: Docker Compose lo interpreta come variabile.
 
 ### 4. Dominio
 1. Sul DNS crea un record **A** `uni.tuodominio.it` → IP della VPS.
@@ -67,7 +63,7 @@ Evita il carattere `$` nella password: Docker Compose lo interpreta come variabi
 Premi **Deploy**. La prima build richiede qualche minuto per ffmpeg e Deno. Quando è finita:
 
 - `https://uni.tuodominio.it` → home
-- `https://uni.tuodominio.it/studycut/` → StudyCut (chiede utente e password)
+- `https://uni.tuodominio.it/studycut/` → StudyCut
 
 Con **Preview Compose** puoi vedere il file con le etichette Traefik che Dokploy aggiunge da solo.
 Per fare il deploy automatico a ogni push, attiva **Autodeploy** oppure usa il webhook della scheda **Deployments**.
@@ -145,7 +141,6 @@ Regole per i tool con server:
   "type": "service",            // static | service | link
   "upstream": "quiz:8000",      // solo service: servizio:porta nel compose
   "url": "https://…",           // solo link
-  "auth": true,                 // chiede HUB_USER/HUB_PASSWORD
   "maxUpload": "500MB",         // facoltativo: limite upload (service)
   "category": "memo",           // id da tools/categories.json
   "icon": "quiz",               // icona della home (cut, mic, cards, quiz, cal, timer, cap, book, …; "box" di default)
@@ -193,4 +188,3 @@ I log e il terminale dei container sono anche nell'interfaccia di Dokploy (sched
   poi riavvia Traefik.
 - **404 su `/<tool>/`:** controlla che la cartella non inizi con `_`, che `id` sia uguale al nome della cartella e che `enabled` non sia `false`. Poi rifai il deploy: le rotte vengono generate durante la build.
 - **502 su un tool con server:** il container non è partito oppure `upstream` non corrisponde al nome del servizio o alla porta. Controlla i log del tool.
-- **Nessuna password richiesta:** `HUB_PASSWORD` è vuota. Impostala e rifai il deploy.
