@@ -6,9 +6,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>StudyCut</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%227%22 fill=%22%23222%22/%3E%3Cpath d=%22M9.5 7.5v9l7-4.5z%22 fill=%22white%22/%3E%3C/svg%3E">
-<meta name="theme-color" content="#000000">
+<title>StudyCut · StudyKit</title>
+<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%227%22 fill=%22%23222%22/%3E%3Cpath d=%22M9.5 7.5v9l7-4.5z%22 fill=%22white%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#0c0d0f">
+<link rel="stylesheet" href="/brand/brand.css">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -17,7 +19,7 @@
   <div class="scrim" id="scrim"></div>
   <header>
     <div class="hl">
-      <a class="ib home-b" id="homeBtn" href="../" title="Torna a uniSpace" aria-label="Torna a uniSpace"><svg viewBox="0 0 24 24"><path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9v9.5A1.5 1.5 0 0 0 7 20h3.5v-5.5h3V20H17a1.5 1.5 0 0 0 1.5-1.5V9"/></svg></a>
+      <a class="ib home-b" id="homeBtn" href="../" title="Torna a StudyKit" aria-label="Torna a StudyKit"><svg viewBox="0 0 24 24"><path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9v9.5A1.5 1.5 0 0 0 7 20h3.5v-5.5h3V20H17a1.5 1.5 0 0 0 1.5-1.5V9"/></svg></a>
       <button class="ib" id="tglL" title="Libreria (L)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
       <span class="brand">StudyCut</span>
       <button class="act-ind" id="actInd" title="Mostra attività"><span class="spin"></span><span id="actN"></span></button>
@@ -61,7 +63,13 @@
     </div></aside>
 
     <main class="stage">
-      <div class="empty" id="empty"></div>
+      <div class="empty" id="empty"><div class="e-in">
+        <k-mascot class="e-m"></k-mascot>
+        <p class="k-mono e-k">StudyCut · lezioni senza pause</p>
+        <h1 class="k-display e-h">Incolla una lezione,</h1>
+        <p class="k-serif e-s">il resto è chill.</p>
+        <p class="e-p">Un link di YouTube o un file dal computer: lo scarichi, lo guardi più veloce e salti i silenzi.</p>
+      </div></div>
 
       <div class="viewer" id="viewer" hidden>
         <div class="pbox" id="pbox">
@@ -170,6 +178,8 @@
 <div class="drop" id="drop"><div>Rilascia i file per importarli</div></div>
 <video id="pv" muted preload="auto" hidden></video>
 
+<script src="/brand/bands.js"></script>
+<script src="/brand/mascot.js"></script>
 <script src="bgfx.js"></script>
 <script src="app.js"></script>
 </body>

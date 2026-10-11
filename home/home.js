@@ -93,10 +93,30 @@ const tIcon = t => t.iconSvg ? `<svg viewBox="0 0 24 24">${t.iconSvg}</svg>` : s
 const icon = t => `<span class="ic" style="--cc:${CAT[t.cat].c}">${tIcon(t)}</span>`;
 const ext = t => t.external ? ' target="_blank" rel="noopener"' : '';
 
+/* ---------------------------------------------------------------- catalogo: una tessera per categoria */
+const PAL = { video: 'cobalto', pdf: 'ruggine', memo: 'prugna', calc: 'salvia', plan: 'ocra', write: 'ottanio' };
+const SOON = { video: 'Lezioni, registrazioni e podcast.', pdf: 'Unire, comprimere, convertire.', memo: 'Flashcard, quiz e ripasso a intervalli.',
+  calc: 'Formule, grafici e calcoli.', plan: 'Orari, scadenze e sessioni di studio.', write: 'Bibliografia, citazioni e tesi.' };
+const ARR = '<svg class="go" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg>';
+(() => {
+  const g = $('#catGrid'); if (!g) return;
+  const cats = [...CATS, ...(TOOLS.some(t => !t.cat) ? [FALLBACK_CAT] : [])];
+  g.innerHTML = cats.map(c => {
+    const ts = TOOLS.filter(t => t.cat === c.id), n = ts.length;
+    return `<article class="cat${n ? '' : ' empty'}" style="--pal:url(/brand/bands/${PAL[c.id] || 'petrolio'}.jpg)">
+      <div class="cat-h"><h3>${esc(c.name)}</h3><span class="cat-n">${n ? `${n} tool` : 'Presto'}</span></div>
+      ${n ? `<div class="cat-l">${ts.map(t => `<a class="cat-t" href="${t.url}"${ext(t)} data-tool="${t.id}">${icon(t)}<span><b>${esc(t.name)}</b><span class="d">${esc(t.desc)}</span></span>${ARR}</a>`).join('')}</div>`
+        : `<p class="cat-soon">In arrivo<small>${esc(SOON[c.id] || 'Nuovi tool in arrivo.')}</small></p>`}
+    </article>`;
+  }).join('');
+  $('#catsN').textContent = `${TOOLS.length} ${TOOLS.length === 1 ? 'tool disponibile' : 'tool disponibili'}, altri in arrivo. Tutti gratis, con lo stesso account.`;
+})();
+fetch('/account/api/config').then(r => r.ok ? r.json() : null).then(c => { if (c && c.quota) $('#factQ').textContent = `${Math.round(c.quota / (1 << 30))} GB tutti tuoi`; }).catch(() => {});
+
 /* ---------------------------------------------------------------- header + hero */
 const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 $$('.kh').forEach(k => k.textContent = mac ? '⌘ K' : 'Ctrl K');
-$('#lead').textContent = TOOLS.length === 1 ? `${TOOLS[0].name}: ${TOOLS[0].desc}` : TOOLS.length ? `${TOOLS.length} tool gratuiti per l’università, tutti in un posto. ${TOOLS.map(t => t.name).join(' · ')}.` : 'I tool sono in arrivo.';
+$('#lead').textContent = TOOLS.length ? `Tool gratuiti per l’università, tutti in un posto e con un solo account. Tu pensa a studiare, al resto ci pensa Chill.` : 'I tool sono in arrivo. Intanto, chill.';
 // formati supportati che scorrono nel campo di ricerca
 const pills = FORMATS.map(f => `<span class="fmt" data-q="${esc(f)}">${esc(f)}</span>`).join('');
 $('#tick').innerHTML = `<span class="tick-g">${pills}</span><span class="tick-g" aria-hidden="true">${pills}</span>`;
@@ -184,7 +204,7 @@ function renderPal() {
   const anim = key !== pKey; pKey = key;
   let i = 0;
   plist.innerHTML = groups.length ? groups.map(([g, ts, c]) => `<section class="pal-g">${g ? `<h4 style="--cc:${c || 'var(--text)'}">${c ? '<i></i>' : ''}${esc(g)}</h4>` : ''}<div class="pal-grid">${ts.map(t => card(t, q, i++)).join('')}</div></section>`).join('')
-    : `<div class="pal-empty">${FORMATS.length ? `Prova con un formato: ${FORMATS.slice(0, 5).map(f => `<button data-q="${esc(f)}">${esc(f)}</button>`).join(', ')}.` : 'Nessun tool disponibile.'}</div>`;
+    : `<div class="pal-empty"><k-mascot pose="curioso" still></k-mascot><b>Mmh, qui niente.</b><span>${FORMATS.length ? `Prova con un formato: ${FORMATS.slice(0, 5).map(f => `<button data-q="${esc(f)}">${esc(f)}</button>`).join(' ')}` : 'Nessun tool disponibile.'}</span></div>`;
   plist.classList.toggle('anim', anim && !reduce);
   selPal(0, false);
 }
@@ -435,7 +455,7 @@ const shows = FEAT.map(f => {
   const t = TOOL[f.id], film = FILMS[f.demo] || GENERIC;
   const sec = document.createElement('section'); sec.className = 'show'; sec.style.setProperty('--cc', CAT[t.cat].c); sec.setAttribute('aria-label', t.name);
   sec.innerHTML = `<canvas class="sh-bg" aria-hidden="true"></canvas><div class="sh-vig"></div><div class="sh-film">${film.html(t, f)}</div><div class="sh-prog"><i></i></div>`;
-  $('main').append(sec);
+  $('main').insertBefore(sec, $('#tools'));
   const root = sec.querySelector('.sh-film'), render = film.mount(root), bar = sec.querySelector('.sh-prog i'), L = film.length;
   // sfondo WebGL dal tool.json (fx + preset), più visibile durante logo e finale
   const cv = sec.querySelector('.sh-bg');
@@ -510,6 +530,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) shows
 })();
 
 /* sfondo dell'hero */
-const heroFx = window.FX && FX.shapes($('#heroFx'), { color: '#1f1f23', hoverColor: '#d8d8dc', backgroundColor: '#000000', cellSize: 12, brightness: .3, fade: .4, splashRadius: 60, splashStrength: .45 });
-if (heroFx) { $('#heroFx').classList.add('on'); new IntersectionObserver(es => es[0].isIntersecting ? heroFx.start() : heroFx.stop()).observe($('#heroFx')); }
+// bande di vetro degli inviti, tavolozza "petrolio" (il colore di Chill)
+const heroFx = window.Bands && Bands($('#heroFx'), { palette: 'petrolio', bias: .08, res: .5 });
+if (heroFx) new IntersectionObserver(es => es[0].isIntersecting && !document.hidden ? heroFx.start() : heroFx.stop()).observe($('#heroFx'));
 

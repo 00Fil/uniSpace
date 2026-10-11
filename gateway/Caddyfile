@@ -60,6 +60,13 @@
 		file_server
 	}
 
+	# marchio condiviso (font, sfondi, mascotte): pubblico, in cache un giorno
+	handle /brand/* {
+		header Cache-Control "public, max-age=86400"
+		root * /srv/home
+		file_server
+	}
+
 	handle {
 		header Cache-Control "no-cache"
 		root * /srv/home

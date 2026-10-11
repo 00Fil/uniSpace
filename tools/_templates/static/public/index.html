@@ -3,18 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0c0d0f">
 <title>__NAME__ · StudyKit</title>
+<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
+<!-- marchio StudyKit: font, colori (--ink, --cream, --petrolio…) e classi k-mono, k-display, k-serif, k-glass, k-btn, k-logo -->
+<link rel="stylesheet" href="/brand/brand.css">
 <style>
-  :root { color-scheme: dark; font-family: system-ui, sans-serif; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #000; color: #eee; }
-  a { color: #a9c6ff; }
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--ink); color: var(--c-text); font: 15px/1.5 var(--f-sans); }
+  main { max-width: 520px; }
+  h1 { font-size: clamp(44px, 8vw, 72px); margin: 14px 0 6px; }
+  .k-serif { font-size: 32px; margin: 0 0 18px; }
+  p { color: var(--c-muted); }
+  .k-btn { margin-top: 18px; }
 </style>
 </head>
 <body>
   <main>
-    <p><a href="../">← StudyKit</a></p>
-    <h1>__NAME__</h1>
+    <a class="k-logo" href="../"><img src="/brand/logo.svg" alt="" width="26" height="26"><b>StudyKit</b></a>
+    <h1 class="k-display">__NAME__</h1>
+    <p class="k-serif">zero sbatti.</p>
     <p>Il tool gira tutto nel browser: metti qui HTML, CSS e JS (percorsi relativi, es. <code>app.js</code>).</p>
+    <a class="k-btn" href="../">Torna ai tool</a>
   </main>
   <!-- account: pulsante con profilo, spazio usato ed Esci (in alto a destra, oppure dentro un elemento con data-account) -->
   <script src="/account/badge.js" defer></script>

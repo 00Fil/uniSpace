@@ -329,8 +329,26 @@ void main(){
   const cS = root.querySelector('.fx-shapes'), cW = root.querySelector('.fx-waves');
   const stage = document.querySelector('.stage');
   let shapes = null, waves = null;
+  const FADE_MS = 750; // = transizione di opacity dei canvas in app.css
+  let mode = null, shownDone;
+  const shown = new Promise(r => { shownDone = r; });
+  // con il marchio StudyKit (/brand/bands.js): le bande di vetro degli inviti in cobalto, piene nella schermata vuota e
+  // attenuate dietro al player. Senza, restano gli sfondi originali (forme + onde blu).
+  const bands = window.Bands && Bands(cW, { palette: 'cobalto', res: .5, bias: .1 });
+  if (bands) {
+    root.classList.add('k-bands');
+    window.BGFX = {
+      shown,
+      mode(m) {
+        if (m === mode) return;
+        if (mode === null) setTimeout(shownDone, reduce.matches ? 0 : FADE_MS);
+        mode = m; root.dataset.mode = m; bands.start();
+      },
+    };
+    return;
+  }
   try {
-    shapes = ShapeWaves(cS, { text: 'Denuvo', textBox: () => { const r = stage.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height }; } });
+    shapes = ShapeWaves(cS, { text: 'StudyCut', textBox: () => { const r = stage.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height }; } });
   } catch (e) { console.warn('ShapeWaves', e); }
   try {
     waves = GradientWaves(cW, { horizonColor: '#03091a', waveColor: '#2a62f0', crestColor: '#a9cbff', speed: 0.2, amplitude: 2.4,
@@ -338,9 +356,6 @@ void main(){
   } catch (e) { console.warn('GradientWaves', e); }
   let raf = 0;
   new ResizeObserver(() => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; shapes && shapes.relayout(); }); }).observe(stage);
-  let mode = null, shownDone;
-  const FADE_MS = 750; // = transizione di opacity dei canvas in app.css
-  const shown = new Promise(r => { shownDone = r; });
   if (!shapes && !waves) shownDone();
   window.BGFX = {
     shown, // si risolve quando la prima animazione di comparsa dello sfondo e' finita

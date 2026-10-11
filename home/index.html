@@ -3,19 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#0c0d0f">
 <title>StudyKit · Tutto per l’uni, zero sbatti</title>
 <meta name="description" content="Tool gratuiti per studenti universitari, tutti in un posto.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%227%22 fill=%22%23eee%22/%3E%3Cpath d=%22M7 7h4v4H7zM13 7h4v4h-4zM7 13h4v4H7z%22 fill=%22%23000%22/%3E%3Cpath d=%22M13 13h4v4h-4z%22 fill=%22%23000%22/%3E%3C/svg%3E">
+<meta property="og:title" content="StudyKit · Tutto per l’uni, zero sbatti">
+<meta property="og:image" content="/brand/mascot/occhiolino.webp">
+<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/brand/fonts/anton.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/brand/fonts/space-mono-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/brand/fonts/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/brand/brand.css">
 <link rel="stylesheet" href="home.css">
 </head>
 <body>
-<canvas id="heroFx" aria-hidden="true"></canvas>
-
 <header class="top" id="top">
-  <a class="logo" href="#"><span class="mark"><i></i><i></i><i></i><i class="d"></i></span>StudyKit</a>
+  <a class="k-logo logo" href="#" aria-label="StudyKit, torna su"><svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="89" height="89" rx="24.5" stroke-width="11"/><path d="M25 40C28 50 40 50 43 40M57 40C60 50 72 50 75 40" stroke-width="7.5"/><path d="M41 65C45 71 55 71 59 65" stroke-width="7.5"/></svg><b>StudyKit</b></a>
   <button class="nsearch" id="nsearch" type="button" tabindex="-1" aria-label="Cerca un tool"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><span>Cerca un tool</span><kbd class="kh">Ctrl K</kbd></button>
-  <a class="acct-in" id="acctIn" href="/account/login" hidden>Accedi</a>
+  <a class="acct-in k-btn" id="acctIn" href="/account/login" hidden>Accedi</a>
   <div class="acct" id="acct" hidden>
     <button class="acct-b" id="acctB" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Il tuo account"><span id="acctI"></span></button>
     <div class="acct-m" id="acctM" role="menu" hidden>
@@ -30,19 +34,41 @@
 
 <main>
   <section class="hero">
+    <div class="hero-bg" aria-hidden="true"><canvas id="heroFx"></canvas><div class="hero-shade"></div><div class="k-grain"></div></div>
     <div class="hero-in">
-      <h1><span>Tutto per l’uni,</span> <span>zero sbatti.</span></h1>
-      <p class="lead" id="lead"></p>
-      <button class="hsearch" id="hsearch" type="button" aria-label="Cerca un tool">
-        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
-        <span class="hs-l">Cerca un tool</span>
-        <span class="tick" aria-hidden="true"><span class="tick-t" id="tick"></span></span>
-        <kbd class="kh">Ctrl K</kbd>
-      </button>
+      <div class="hero-copy">
+        <p class="k-mono kick">Sbatti con l’uni?</p>
+        <h1><span class="k-display">Tutto per l’uni,</span><span class="k-serif">zero sbatti.</span></h1>
+        <p class="lead" id="lead"></p>
+        <button class="hsearch" id="hsearch" type="button" aria-label="Cerca un tool">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+          <span class="hs-l">Cerca un tool</span>
+          <span class="tick" aria-hidden="true"><span class="tick-t" id="tick"></span></span>
+          <kbd class="kh">Ctrl K</kbd>
+        </button>
+        <ul class="facts k-mono" aria-label="In breve"><li>Gratis</li><li>Un account per tutto</li><li id="factQ">2 GB tutti tuoi</li></ul>
+      </div>
+      <div class="hero-mascot"><k-mascot intro aria-label="Chill, la mascotte: salta e fa l’occhiolino"></k-mascot><span class="mascot-tip k-mono">Toccalo</span></div>
     </div>
+    <a class="hero-down k-mono" href="#tools"><span>I tool</span><svg viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></a>
   </section>
 
+  <section class="cats wrap" id="tools" aria-labelledby="catsH">
+    <div class="sec-head">
+      <div><p class="k-mono">Scegli il tuo sbatti</p><h2 class="k-display" id="catsH">Tutti i tool</h2></div>
+      <p class="sec-note" id="catsN"></p>
+    </div>
+    <div class="cat-grid" id="catGrid"></div>
+  </section>
 </main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <a class="k-logo" href="#"><svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="89" height="89" rx="24.5" stroke-width="11"/><path d="M25 40C28 50 40 50 43 40M57 40C60 50 72 50 75 40" stroke-width="7.5"/><path d="M41 65C45 71 55 71 59 65" stroke-width="7.5"/></svg><b>StudyKit</b></a>
+    <p class="k-serif foot-chill">Chiiiillll</p>
+    <a class="k-mono foot-up" href="#">Torna su <svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></a>
+  </div>
+</footer>
 
 <div class="pal" id="pal" hidden role="dialog" aria-modal="true" aria-label="Cerca un tool">
   <div class="pal-bg"></div>
@@ -57,6 +83,8 @@
 </div>
 <div class="toasts" id="toasts"></div>
 
+<script src="/brand/bands.js"></script>
+<script src="/brand/mascot.js"></script>
 <script src="fx.js"></script>
 <script src="fx2.js"></script>
 <script type="module" src="home.js"></script>

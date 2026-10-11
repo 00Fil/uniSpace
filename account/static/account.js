@@ -19,6 +19,7 @@ function setMode(m, anim) {
   mode = m; document.body.dataset.m = m;
   const up = m === 'signup';
   $('#ttl').textContent = up ? 'Crea il tuo account' : 'Bentornato';
+  $('.kick').textContent = up ? 'Zero sbatti, promesso' : 'Un account, tutti i tool';
   $('#lead').textContent = up ? `Hai ${gb(cfg.quota)} tutti tuoi: i tuoi video e i tuoi file li vedi solo tu.`
     : 'Entra per usare i tool: un solo account per tutti, con il tuo spazio personale.';
   $('#goL').textContent = up ? 'Crea account' : 'Accedi';
@@ -65,5 +66,5 @@ fetch('/account/api/config').then(r => r.json()).then(c => {
   setMode(qs.get('m') === 'signup' && c.signup ? 'signup' : 'login');
 }).catch(() => setMode('login')).finally(() => { stagger(); $('#name').focus({ preventScroll: true }); });
 
-// onde "silk" ciano a destra, che seguono il cursore
-if (window.PatternWaves) PatternWaves($('#waves'), { preset: 'silk', color: '#06B6D4', backgroundColor: '#000000', fade: 'edges', interactive: true, cursorSize: 50, cursorStrength: 0.6 });
+// a destra: le bande di vetro degli inviti con Chill che saluta
+if (window.Bands) { const b = Bands($('#waves'), { palette: 'petrolio', res: .5 }); b && b.start(); }

@@ -1,0 +1,5 @@
+/* Font del marchio (OFL): titoli Anton, etichette Space Mono, accenti Instrument Serif corsivo */
+@font-face{font-family:"Anton";src:url(/brand/fonts/anton.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Space Mono";src:url(/brand/fonts/space-mono-400.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Space Mono";src:url(/brand/fonts/space-mono-700.woff2) format("woff2");font-weight:700;font-display:swap}
+@font-face{font-family:"Instrument Serif";src:url(/brand/fonts/instrument-serif-italic.woff2) format("woff2");font-style:italic;font-weight:400;font-display:swap}

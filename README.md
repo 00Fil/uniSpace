@@ -136,6 +136,20 @@ Dalla VPS YouTube a volte risponde con *"Sign in to confirm you're not a bot"*. 
 ### yt-dlp sempre aggiornato
 Il container aggiorna yt-dlp a ogni avvio e lo ricontrolla ogni 24 ore. Quando esce una versione nuova, aspetta che i download in corso finiscano e poi si riavvia da solo. Non serve nessun cron.
 
+## Marchio e stile (`/brand/`)
+
+Home, account e tool condividono lo stesso linguaggio visivo, servito dal gateway in `/brand/` (cartella `home/brand/`):
+
+- `brand.css`: colori (`--ink`, `--cream`, le 8 tavolozze degli inviti `--petrolio`, `--cobalto`…), font e classi pronte:
+  `k-mono` (etichette Space Mono), `k-display` (titoli Anton sfumati), `k-serif` (corsivo Instrument Serif), `k-glass`, `k-btn`, `k-logo`, `k-grain`;
+- `bands.js`: lo sfondo a bande di vetro degli inviti, animato. `Bands(canvas, { palette: 'cobalto' }).start()`;
+- `mascot.js`: Chill, la mascotte. `<k-mascot intro></k-mascot>` (salto + occhiolino, poi vivo), `<k-mascot pose="felice" still size="120"></k-mascot>` per una posa ferma
+  (`base`, `chill`, `occhiolino`, `curioso`, `ciao`, `felice`). Su Safari usa il WebP animato, con "riduci movimento" la posa ferma;
+- `favicon.svg`, `logo.svg`.
+
+Un tool nuovo prende il marchio con una riga: `<link rel="stylesheet" href="/brand/brand.css">` (i template in `tools/_templates/` lo fanno già).
+Il colore della categoria del tool nella home viene da `tools/categories.json`.
+
 ## Aggiungere un tool
 
 Esistono tre tipi, da indicare nel campo `type` di `tool.json`:

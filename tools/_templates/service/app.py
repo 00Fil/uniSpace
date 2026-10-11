@@ -7,9 +7,10 @@ I file dell'utente vanno in /data/users/<X-User-Id>/__ID__/ (volume "userdata").
 import json
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
-PAGE = b"""<!doctype html><meta charset="utf-8"><title>__NAME__</title>
-<body style="font-family:system-ui;background:#000;color:#eee">
-<p><a style="color:#a9c6ff" href="../">&larr; StudyKit</a></p><h1>__NAME__</h1><p id="o">...</p>
+PAGE = b"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>__NAME__ \xc2\xb7 StudyKit</title>
+<link rel="icon" href="/brand/favicon.svg"><link rel="stylesheet" href="/brand/brand.css">
+<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:var(--ink);color:var(--c-text);font:15px/1.5 var(--f-sans)">
+<main><a class="k-logo" href="../"><b>&larr; StudyKit</b></a><h1 class="k-display" style="font-size:64px;margin:14px 0">__NAME__</h1><p id="o" class="k-mono">...</p></main>
 <script>fetch('api/ciao').then(r => r.json()).then(j => o.textContent = j.msg)</script>
 <script src="/account/badge.js" defer></script>"""
 
