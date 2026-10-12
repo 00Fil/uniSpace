@@ -1137,4 +1137,3 @@ if (location.pathname === '/' || location.pathname === '/index.html') $('#homeBt
   setTimeout(() => { startTour('intro'); maybeVideoTour(); }, 1250);
   requestAnimationFrame(loop);
 })();
-$('#emptyImport') && $('#emptyImport').addEventListener('click', () => $('#fileInput').click());

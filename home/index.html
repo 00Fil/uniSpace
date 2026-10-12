@@ -3,90 +3,90 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#f3f4f9">
+<meta name="theme-color" content="#0c0d0f">
 <title>StudyKit · Tutto per l’uni, zero sbatti</title>
-<meta name="description" content="Tool gratuiti per l’università, tutti in un posto e con un solo account.">
+<meta name="description" content="Tool gratuiti per studenti universitari, tutti in un posto.">
 <meta property="og:title" content="StudyKit · Tutto per l’uni, zero sbatti">
 <meta property="og:image" content="/brand/mascot/occhiolino.webp">
 <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
-<link rel="preload" href="/brand/fonts/inter-tight.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/brand/fonts/anton.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/brand/fonts/space-mono-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/brand/fonts/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/brand/brand.css">
 <link rel="stylesheet" href="home.css">
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="kgrad" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#6fc3f7"/><stop offset="1" stop-color="#8a84f3"/></linearGradient><linearGradient id="kgradSoft" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#d9effd"/><stop offset="1" stop-color="#e3e1fd"/></linearGradient><linearGradient id="klogo" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="100"><stop offset="0" stop-color="#76c6f7"/><stop offset="1" stop-color="#7f7cf0"/></linearGradient></defs></svg>
-<a class="skip" href="#tools">Vai ai tool</a>
 <header class="top" id="top">
-  <div class="top-in">
-    <a class="k-logo" href="#" aria-label="StudyKit, torna su"><svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="28" fill="url(#klogo)"/><g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="8"><path d="M24 44C27 54 39 54 42 44M58 44C61 54 73 54 76 44"/><path d="M40 67C44 73 56 73 60 67"/></g></svg><b>StudyKit</b></a>
-    <button class="nsearch" id="nsearch" type="button" tabindex="-1" aria-label="Cerca un tool"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><span>Cerca un tool</span><kbd class="kh">Ctrl K</kbd></button>
-    <div class="guest" id="acctIn" hidden><a class="k-btn ghost" href="/account/login">Accedi</a><a class="k-btn" href="/account/login?m=signup">Crea account</a></div>
-    <div class="acct" id="acct" hidden>
-      <button class="acct-b" id="acctB" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Il tuo account"><span id="acctI"></span></button>
-      <div class="acct-m" id="acctM" role="menu" hidden>
-        <div class="acct-h"><b id="acctN"></b></div>
-        <div class="acct-s"><div class="acct-st"><span>Spazio usato</span><span id="acctU"></span></div><div class="acct-bar"><i id="acctBar"></i></div></div>
-        <a class="acct-x" href="/account/" role="menuitem">Profilo e spazio</a>
-        <button class="acct-x" id="acctOut" type="button" role="menuitem">Esci</button>
-      </div>
+  <a class="k-logo logo" href="#" aria-label="StudyKit, torna su"><svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="89" height="89" rx="24.5" stroke-width="11"/><path d="M25 40C28 50 40 50 43 40M57 40C60 50 72 50 75 40" stroke-width="7.5"/><path d="M41 65C45 71 55 71 59 65" stroke-width="7.5"/></svg><b>StudyKit</b></a>
+  <button class="nsearch" id="nsearch" type="button" tabindex="-1" aria-label="Cerca un tool"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><span>Cerca un tool</span><kbd class="kh">Ctrl K</kbd></button>
+  <a class="acct-in k-btn" id="acctIn" href="/account/login" hidden>Accedi</a>
+  <div class="acct" id="acct" hidden>
+    <button class="acct-b" id="acctB" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Il tuo account"><span id="acctI"></span></button>
+    <div class="acct-m" id="acctM" role="menu" hidden>
+      <div class="acct-h"><span class="acct-av" id="acctAv"></span><div><b id="acctN"></b><small>Account StudyKit</small></div></div>
+      <div class="acct-s"><div class="acct-st"><span>Il tuo spazio</span><span id="acctU"></span></div><div class="acct-bar"><i id="acctBar"></i></div>
+        <p>Vale per tutti i tool: i tuoi video e i tuoi file li vedi solo tu.</p></div>
+      <a class="acct-x" href="/account/" role="menuitem"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/></svg>Profilo e spazio</a>
+      <button class="acct-x" id="acctOut" type="button" role="menuitem"><svg viewBox="0 0 24 24"><path d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14M10 16l-4-4 4-4M6 12h10"/></svg>Esci</button>
     </div>
   </div>
 </header>
 
 <main>
   <section class="hero">
-    <div class="hero-stage" id="stage">
-      <svg class="blue" viewBox="0 0 1200 760" aria-hidden="true">
-        <path class="arc" d="M268 452C300 560 380 640 470 706"/>
-        <path class="arc" d="M932 452C900 560 820 640 730 706"/>
-        <path class="dash" d="M0 706H1200"/><path class="dash" d="M250 520V760M950 520V760"/>
-        <path class="dash" d="M0 470H120M1080 470H1200"/>
-        <g class="cross"><path d="M250 694v24M238 706h24"/><path d="M950 694v24M938 706h24"/><path d="M600 700v12"/></g>
-      </svg>
-      <div class="glow" aria-hidden="true"></div>
-      <div class="tiles" id="tiles" aria-hidden="true"></div>
+    <div class="hero-bg" aria-hidden="true"><canvas id="heroFx"></canvas><div class="hero-shade"></div><div class="k-grain"></div></div>
+    <div class="hero-in">
       <div class="hero-copy">
-        <span class="k-chip rv"><svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="28" fill="url(#klogo)"/><g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="8"><path d="M24 44C27 54 39 54 42 44M58 44C61 54 73 54 76 44"/><path d="M40 67C44 73 56 73 60 67"/></g></svg>StudyKit</span>
-        <h1 class="title" id="title">Tutto per l’uni, zero sbatti.</h1>
-        <p class="lead rv">Tool gratuiti per l’università, con un solo account e <span id="factQ">2 GB</span> per i tuoi file.</p>
-        <button class="hsearch rv" id="hsearch" type="button">
+        <p class="k-mono kick">Sbatti con l’uni?</p>
+        <h1><span class="k-display">Tutto per l’uni,</span><span class="k-serif">zero sbatti.</span></h1>
+        <p class="lead" id="lead"></p>
+        <button class="hsearch" id="hsearch" type="button" aria-label="Cerca un tool">
           <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
-          <span>Cerca un tool o un formato</span>
+          <span class="hs-l">Cerca un tool</span>
+          <span class="tick" aria-hidden="true"><span class="tick-t" id="tick"></span></span>
           <kbd class="kh">Ctrl K</kbd>
         </button>
+        <ul class="facts k-mono" aria-label="In breve"><li>Gratis</li><li>Un account per tutto</li><li id="factQ">2 GB tutti tuoi</li></ul>
       </div>
+      <div class="hero-mascot"><k-mascot intro aria-label="Chill, la mascotte: salta e fa l’occhiolino"></k-mascot><span class="mascot-tip k-mono">Toccalo</span></div>
     </div>
-    <div class="peek-w"><div class="peek" id="peek" aria-hidden="true"></div></div>
+    <a class="hero-down k-mono" href="#tools"><span>I tool</span><svg viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></a>
   </section>
 
-  <section class="tools wrap" id="tools" aria-labelledby="toolsH">
+  <section class="cats wrap" id="tools" aria-labelledby="catsH">
     <div class="sec-head">
-      <span class="k-chip"><svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="28" fill="url(#klogo)"/><g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="8"><path d="M24 44C27 54 39 54 42 44M58 44C61 54 73 54 76 44"/><path d="M40 67C44 73 56 73 60 67"/></g></svg>Tutti i tool</span>
-      <h2 id="toolsH">Uno per ogni sbatti dell’uni</h2>
-      <p id="toolsN"></p>
+      <div><p class="k-mono">Scegli il tuo sbatti</p><h2 class="k-display" id="catsH">Tutti i tool</h2></div>
+      <p class="sec-note" id="catsN"></p>
     </div>
-    <div class="grid" id="grid"></div>
+    <div class="cat-grid" id="catGrid"></div>
   </section>
 </main>
 
-<footer class="foot wrap">
-  <a class="k-logo" href="#"><svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="28" fill="url(#klogo)"/><g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="8"><path d="M24 44C27 54 39 54 42 44M58 44C61 54 73 54 76 44"/><path d="M40 67C44 73 56 73 60 67"/></g></svg><b>StudyKit</b></a>
-  <p>I tuoi file li vedi solo tu.</p>
+<footer class="foot">
+  <div class="wrap foot-in">
+    <a class="k-logo" href="#"><svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="89" height="89" rx="24.5" stroke-width="11"/><path d="M25 40C28 50 40 50 43 40M57 40C60 50 72 50 75 40" stroke-width="7.5"/><path d="M41 65C45 71 55 71 59 65" stroke-width="7.5"/></svg><b>StudyKit</b></a>
+    <p class="k-serif foot-chill">Chiiiillll</p>
+    <a class="k-mono foot-up" href="#">Torna su <svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></a>
+  </div>
 </footer>
 
 <div class="pal" id="pal" hidden role="dialog" aria-modal="true" aria-label="Cerca un tool">
   <div class="pal-bg"></div>
+  <button class="pal-x" id="palX" type="button" aria-label="Chiudi"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
   <div class="pal-sc" id="palSc">
-    <div class="pal-box">
-      <label class="pal-in" id="palIn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="pq" placeholder="Nome, formato o cosa devi fare" autocomplete="off" spellcheck="false" enterkeyhint="go" aria-label="Cerca"><button class="pal-x" id="palX" type="button" aria-label="Chiudi"><kbd>Esc</kbd></button></label>
-      <div class="pal-list" id="pList"></div>
+    <div class="pal-head" id="palHead">
+      <label class="pal-in" id="palIn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="pq" placeholder="Nome, formato o cosa devi fare" autocomplete="off" spellcheck="false" enterkeyhint="go"><kbd>Esc</kbd></label>
       <p class="pal-hint" id="palHint"></p>
     </div>
+    <div class="pal-list" id="pList"></div>
   </div>
 </div>
-<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="toasts" id="toasts"></div>
 
+<script src="/brand/bands.js"></script>
 <script src="/brand/mascot.js"></script>
+<script src="fx.js"></script>
+<script src="fx2.js"></script>
 <script type="module" src="home.js"></script>
 </body>
 </html>

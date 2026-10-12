@@ -18,6 +18,22 @@
   "featured": {
     "headline": "Le lezioni, senza pause.",
     "sub": "Toglie i silenzi e la fa scorrere fino a 3×. Un’ora e mezza diventa mezz’ora.",
-    "demo": "cut"
+    "demo": "cut",
+    "fx": "tunnel",
+    "preset": {
+      "cableColor": "#3d6ff5",
+      "pulseColor": "#a9c6ff",
+      "tunnelColor": "#1a2f80",
+      "tunnelOpacity": 0.15,
+      "speed": 0.14,
+      "cableCount": 26,
+      "pulseSpeed": 2.2,
+      "glow": 0.9,
+      "brightness": 0.95,
+      "fadeNear": 0.35,
+      "fadeFar": 2.2,
+      "grainIntensity": 0.03,
+      "mouseStrength": 0.12
+    }
   }
 }

@@ -8,7 +8,7 @@ const gb = b => b >= 1 << 30 ? `${(b / (1 << 30)).toLocaleString('it-IT', { maxi
 // ingresso a cascata (molla): ogni elemento .st visibile parte un attimo dopo il precedente
 function stagger(from = 0) {
   let i = 0;
-  document.querySelectorAll('.auth .st').forEach(el => {
+  document.querySelectorAll('.side .st').forEach(el => {
     if (el.hidden || el.offsetParent === null) return;
     if (i++ < from) return;
     el.style.setProperty('--i', i - from);
@@ -18,9 +18,10 @@ function stagger(from = 0) {
 function setMode(m, anim) {
   mode = m; document.body.dataset.m = m;
   const up = m === 'signup';
-  $('#ttl').textContent = up ? 'Crea il tuo account' : 'Accedi a StudyKit';
-  $('#lead').textContent = up ? `Un account per tutti i tool, con ${gb(cfg.quota)} per i tuoi file.`
-    : 'Un solo account per tutti i tool.';
+  $('#ttl').textContent = up ? 'Crea il tuo account' : 'Bentornato';
+  $('.kick').textContent = up ? 'Zero sbatti, promesso' : 'Un account, tutti i tool';
+  $('#lead').textContent = up ? `Hai ${gb(cfg.quota)} tutti tuoi: i tuoi video e i tuoi file li vedi solo tu.`
+    : 'Entra per usare i tool: un solo account per tutti, con il tuo spazio personale.';
   $('#goL').textContent = up ? 'Crea account' : 'Accedi';
   $('#swT').textContent = up ? 'Hai già un account?' : 'Non hai un account?';
   $('#swB').textContent = up ? 'Accedi' : 'Crea account';
@@ -61,6 +62,9 @@ $('#f').onsubmit = async e => {
 fetch('/account/api/config').then(r => r.json()).then(c => {
   cfg = c;
   if (!c.signup) $('#switch').innerHTML = '<span>Le registrazioni sono chiuse: chiedi un account a chi gestisce il sito.</span>';
+  $('#capQ').textContent = `${gb(c.quota)} di spazio personale, uguali in ogni tool.`;
   setMode(qs.get('m') === 'signup' && c.signup ? 'signup' : 'login');
 }).catch(() => setMode('login')).finally(() => { stagger(); $('#name').focus({ preventScroll: true }); });
 
+// a destra: le bande di vetro degli inviti con Chill che saluta
+if (window.Bands) { const b = Bands($('#waves'), { palette: 'petrolio', res: .5 }); b && b.start(); }
