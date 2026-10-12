@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0c0d0f">
+<meta name="theme-color" content="#ffffff">
 <meta name="robots" content="noindex">
 <title>Profilo · StudyKit</title>
 <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
@@ -11,12 +11,14 @@
 <link rel="stylesheet" href="/account/account.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="kgrad" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#6fc3f7"/><stop offset="1" stop-color="#8a84f3"/></linearGradient><linearGradient id="kgradSoft" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#d9effd"/><stop offset="1" stop-color="#e3e1fd"/></linearGradient><linearGradient id="klogo" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="100"><stop offset="0" stop-color="#76c6f7"/><stop offset="1" stop-color="#7f7cf0"/></linearGradient></defs></svg>
+<div class="pglow" aria-hidden="true"></div>
 <header class="pbar">
-  <a class="k-logo brand st" href="/"><svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="89" height="89" rx="24.5" stroke-width="11"/><path d="M25 40C28 50 40 50 43 40M57 40C60 50 72 50 75 40" stroke-width="7.5"/><path d="M41 65C45 71 55 71 59 65" stroke-width="7.5"/></svg><b>StudyKit</b></a>
+  <a class="k-logo brand st" href="/"><svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="28" fill="url(#klogo)"/><g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="8"><path d="M24 44C27 54 39 54 42 44M58 44C61 54 73 54 76 44"/><path d="M40 67C44 73 56 73 60 67"/></g></svg><b>StudyKit</b></a>
   <a class="back st" id="back" href="/"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg><span id="backL">Torna alla home</span></a>
 </header>
 <main class="prof">
-  <section class="who st"><div class="ava" id="ava"></div><div><p class="k-mono">Il tuo profilo</p><h1 class="k-display" id="nm">&nbsp;</h1><p id="since"></p></div><k-mascot class="who-m" pose="felice" still size="132"></k-mascot></section>
+  <section class="who st"><div class="ava" id="ava"></div><div><h1 id="nm">&nbsp;</h1><p id="since"></p></div><k-mascot class="who-m" pose="felice" still aria-hidden="true"></k-mascot></section>
 
   <section class="card st" id="spc">
     <h2>Il tuo spazio</h2>
@@ -32,16 +34,16 @@
       <input type="text" name="username" id="un" autocomplete="username" hidden>
       <label class="fld"><span>Password attuale</span><input id="old" type="password" autocomplete="current-password" maxlength="200"></label>
       <label class="fld"><span>Nuova password</span><input id="new" type="password" autocomplete="new-password" maxlength="200" placeholder="Almeno 8 caratteri"></label>
-      <div class="row"><button class="btn sm" id="pwGo" type="submit"><span class="fill"></span><span class="lbl">Cambia password</span></button>
+      <div class="row"><button class="k-btn btn" id="pwGo" type="submit"><span class="lbl">Cambia password</span></button>
         <p class="msg" id="pwMsg" role="alert"></p><p class="ok-msg" id="pwOk" hidden>Password cambiata. Gli altri dispositivi sono stati disconnessi.</p></div>
     </form>
   </section>
 
   <section class="card st">
-    <h2>Sessioni</h2>
+    <h2>Dispositivi</h2>
     <div class="ses"><p id="sesT">…</p>
-      <button class="ghost" id="out" type="button">Esci</button>
-      <button class="ghost danger" id="outAll" type="button">Esci da tutti i dispositivi</button></div>
+      <button class="k-btn ghost" id="out" type="button">Esci</button>
+      <button class="k-btn ghost danger" id="outAll" type="button">Esci da tutti i dispositivi</button></div>
   </section>
 </main>
 <script src="/brand/mascot.js"></script>

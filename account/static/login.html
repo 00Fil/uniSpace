@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0c0d0f">
+<meta name="theme-color" content="#ffffff">
 <meta name="robots" content="noindex">
 <title>Accedi · StudyKit</title>
 <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
@@ -11,13 +11,14 @@
 <link rel="stylesheet" href="/account/account.css">
 </head>
 <body class="auth-page">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="kgrad" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#6fc3f7"/><stop offset="1" stop-color="#8a84f3"/></linearGradient><linearGradient id="kgradSoft" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#d9effd"/><stop offset="1" stop-color="#e3e1fd"/></linearGradient><linearGradient id="klogo" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="100"><stop offset="0" stop-color="#76c6f7"/><stop offset="1" stop-color="#7f7cf0"/></linearGradient></defs></svg>
 <div class="auth">
   <section class="side">
-    <a class="k-logo brand st" href="/"><svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="89" height="89" rx="24.5" stroke-width="11"/><path d="M25 40C28 50 40 50 43 40M57 40C60 50 72 50 75 40" stroke-width="7.5"/><path d="M41 65C45 71 55 71 59 65" stroke-width="7.5"/></svg><b>StudyKit</b></a>
+    <a class="k-logo brand st" href="/"><svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="28" fill="url(#klogo)"/><g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="8"><path d="M24 44C27 54 39 54 42 44M58 44C61 54 73 54 76 44"/><path d="M40 67C44 73 56 73 60 67"/></g></svg><b>StudyKit</b></a>
     <div class="box">
-      <p class="k-mono kick st">Un account, tutti i tool</p>
-      <h1 class="st k-display" id="ttl">Bentornato</h1>
-      <p class="lead st" id="lead">Entra per usare i tool: un solo account per tutti, con il tuo spazio personale.</p>
+      <span class="k-chip st"><svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="28" fill="url(#klogo)"/><g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="8"><path d="M24 44C27 54 39 54 42 44M58 44C61 54 73 54 76 44"/><path d="M40 67C44 73 56 73 60 67"/></g></svg>Account StudyKit</span>
+      <h1 class="st" id="ttl">Accedi a StudyKit</h1>
+      <p class="lead st" id="lead">Un solo account per tutti i tool.</p>
       <form id="f" novalidate>
         <label class="fld st"><span>Nome utente</span>
           <input id="name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="32" placeholder="es. mario.rossi"></label>
@@ -29,20 +30,28 @@
         <p class="hint st" id="hint" hidden>Nome: lettere minuscole, numeri, punto, trattino e _. Password: almeno 8 caratteri.</p>
         <label class="chk st"><input type="checkbox" id="keep" checked><span class="box-c"><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span>Resta connesso su questo dispositivo</span></label>
         <p class="msg" id="msg" role="alert"></p>
-        <button class="btn st" id="go" type="submit"><span class="fill"></span><span class="lbl" id="goL">Accedi</span></button>
+        <button class="k-btn btn st" id="go" type="submit"><span class="lbl" id="goL">Accedi</span></button>
       </form>
       <p class="switch st" id="switch"><span id="swT">Non hai un account?</span> <button type="button" id="swB">Crea account</button></p>
     </div>
     <p class="legal st">I tuoi file li vedi solo tu.</p>
   </section>
-  <aside class="art" aria-hidden="true">
-    <div class="art-in"><canvas id="waves"></canvas><div class="art-shade"></div><div class="k-grain"></div>
-      <div class="art-m"><k-mascot intro></k-mascot></div>
-      <div class="cap"><span class="k-mono">Sbatti con l’uni?</span><b class="k-serif">Chiiiillll</b><span id="capQ">Il tuo spazio personale, sempre con te.</span></div>
-    </div>
+  <aside class="stage" aria-hidden="true">
+    <svg class="blue" viewBox="0 0 600 800" preserveAspectRatio="xMidYMid slice">
+      <circle cx="300" cy="400" r="250"/><circle cx="300" cy="400" r="370"/>
+      <path class="dash" d="M0 400H600M300 0V800"/><path class="dash" d="M0 640H600"/>
+      <g class="cross"><path d="M300 138v24M288 150h24"/><path d="M50 628v24M38 640h24"/><path d="M550 628v24M538 640h24"/></g>
+    </svg>
+    <div class="glow"></div>
+    <div class="t k-tile" style="--x:16%;--y:20%;--s:84px;--r:-8deg;--d:0s"><svg viewBox="0 0 24 24"><rect class="d" x="2.5" y="7" width="7.5" height="10" rx="2.2"/><rect class="d" x="14" y="7" width="7.5" height="10" rx="2.2"/><rect x="2.5" y="7" width="7.5" height="10" rx="2.2"/><rect x="14" y="7" width="7.5" height="10" rx="2.2"/><path d="M5.3 10.2v3.6l2.8-1.8z" class="f"/><path d="M12 4.5v2M12 10.5v3M12 17.5v2"/></svg></div>
+    <div class="t k-tile" style="--x:80%;--y:16%;--s:70px;--r:7deg;--d:.8s"><svg viewBox="0 0 24 24"><path d="M8 6V4.5A2 2 0 0 1 10 2.5h8.5a2 2 0 0 1 2 2V15a2 2 0 0 1-2 2H17"/><rect class="d" x="3.5" y="6.5" width="13.5" height="15" rx="2.2"/><rect x="3.5" y="6.5" width="13.5" height="15" rx="2.2"/><path d="M7.5 12h5.5M7.5 15.5h3.5"/></svg></div>
+    <div class="t k-tile" style="--x:12%;--y:62%;--s:66px;--r:6deg;--d:1.6s"><svg viewBox="0 0 24 24"><path class="d" d="M14 2.5H7A2.5 2.5 0 0 0 4.5 5v14A2.5 2.5 0 0 0 7 21.5h10a2.5 2.5 0 0 0 2.5-2.5V8z"/><path d="M14 2.5H7A2.5 2.5 0 0 0 4.5 5v14A2.5 2.5 0 0 0 7 21.5h10a2.5 2.5 0 0 0 2.5-2.5V8z"/><path d="M14 2.5V8h5.5M8.5 12.5h7M8.5 16h5"/></svg></div>
+    <div class="t k-tile" style="--x:84%;--y:58%;--s:78px;--r:-6deg;--d:2.4s"><svg viewBox="0 0 24 24"><rect class="d" x="3" y="3" width="18" height="18" rx="4.5"/><rect x="3" y="3" width="18" height="18" rx="4.5"/><path d="M15.5 8H8.5l4 4-4 4h7"/></svg></div>
+    <div class="t k-tile" style="--x:86%;--y:84%;--s:60px;--r:4deg;--d:3.2s"><svg viewBox="0 0 24 24"><path class="d" d="M3 9.5V7a2.5 2.5 0 0 1 2.5-2.5h13A2.5 2.5 0 0 1 21 7v2.5z"/><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><circle cx="8" cy="14" r="1" class="f"/><circle cx="12" cy="14" r="1" class="f"/><circle cx="16" cy="14" r="1" class="f"/><circle cx="8" cy="17.5" r="1" class="f"/></svg></div>
+    <div class="hero-m"><k-mascot intro></k-mascot></div>
+    <p class="cap">Un account,<br>tutti i tool.</p>
   </aside>
 </div>
-<script src="/brand/bands.js"></script>
 <script src="/brand/mascot.js"></script>
 <script src="/account/account.js"></script>
 </body>

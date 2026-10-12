@@ -19,7 +19,7 @@ async function load() {
   $('#since').textContent = 'Account creato il ' + new Date(me.created * 1000).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
   const p = me.quota ? Math.min(1, me.used / me.quota) : 0;
   $('#used').textContent = size(me.used); $('#of').textContent = `di ${size(me.quota)}`;
-  $('#free').textContent = p > .9 ? `Quasi pieno · ${size(Math.max(0, me.quota - me.used))} liberi` : `${size(Math.max(0, me.quota - me.used))} liberi`;
+  $('#free').textContent = p > .9 ? `Quasi pieno: ${size(Math.max(0, me.quota - me.used))} liberi` : `${size(Math.max(0, me.quota - me.used))} liberi`;
   $('#spc').classList.toggle('full', p > .9);
   requestAnimationFrame(() => requestAnimationFrame(() => $('#bar').style.transform = `scaleX(${p.toFixed(4)})`));
   const parts = Object.entries(me.tools || {}).filter(([, b]) => b > 0).sort((a, b) => b[1] - a[1]);
@@ -27,7 +27,7 @@ async function load() {
     const t = tools.find(x => x.id === id), name = t ? t.name : id;
     const w = me.used ? b / me.used : 0;
     return `<li><span class="ic">${esc(name[0].toUpperCase())}</span><span class="nm"><b>${t ? `<a href="${esc(t.url)}">${esc(name)}</a>` : esc(name)}</b><span class="mini"><i style="--w:${w.toFixed(4)}"></i></span></span><span class="sz">${size(b)}</span></li>`;
-  }).join('') : '<li><span class="ic">·</span><span class="nm"><b>Ancora nessun file</b></span><span class="sz">0 B</span></li>';
+  }).join('') : '<li class="none">Ancora nessun file. Quello che salvi nei tool comparirà qui.</li>';
   requestAnimationFrame(() => requestAnimationFrame(() => document.querySelectorAll('.mini i').forEach(i => i.style.transform = `scaleX(${i.style.getPropertyValue('--w')})`)));
   const n = me.sessions || 1;
   $('#sesT').textContent = n > 1 ? `Sei connesso su ${n} dispositivi o browser.` : 'Sei connesso solo qui.';

@@ -5,16 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>StudyCut · StudyKit</title>
 <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
 <link rel="alternate icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%227%22 fill=%22%23222%22/%3E%3Cpath d=%22M9.5 7.5v9l7-4.5z%22 fill=%22white%22/%3E%3C/svg%3E">
-<meta name="theme-color" content="#0c0d0f">
+<meta name="theme-color" content="#ffffff">
 <link rel="stylesheet" href="/brand/brand.css">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<div id="bgfx" data-mode="shapes"><canvas class="fx-waves"></canvas><canvas class="fx-shapes"></canvas></div>
 <div class="app pre intro-sides" id="app">
   <div class="scrim" id="scrim"></div>
   <header>
@@ -64,11 +63,10 @@
 
     <main class="stage">
       <div class="empty" id="empty"><div class="e-in">
-        <k-mascot class="e-m"></k-mascot>
-        <p class="k-mono e-k">StudyCut · lezioni senza pause</p>
-        <h1 class="k-display e-h">Incolla una lezione,</h1>
-        <p class="k-serif e-s">il resto è chill.</p>
-        <p class="e-p">Un link di YouTube o un file dal computer: lo scarichi, lo guardi più veloce e salti i silenzi.</p>
+        <k-mascot class="e-m" intro aria-label="Chill, la mascotte di StudyKit"></k-mascot>
+        <h1 class="e-h">Incolla il link di una lezione</h1>
+        <p class="e-p">Oppure importa un file dal computer. La scarichi, la guardi più veloce e senza le pause.</p>
+        <div class="e-b"><button class="k-btn" type="button" id="emptyImport">Importa un file</button></div>
       </div></div>
 
       <div class="viewer" id="viewer" hidden>
@@ -164,10 +162,10 @@
         <div class="kbd">
           <div><span>Play / pausa</span><span><kbd>Spazio</kbd></span></div>
           <div><span>Indietro / avanti 10 s</span><span><kbd>←</kbd><kbd>→</kbd></span></div>
-          <div><span>Volume · muto</span><span><kbd>↑</kbd><kbd>↓</kbd><kbd>M</kbd></span></div>
+          <div><span>Volume / muto</span><span><kbd>↑</kbd><kbd>↓</kbd><kbd>M</kbd></span></div>
           <div><span>Velocità</span><span><kbd>[</kbd><kbd>]</kbd></span></div>
-          <div><span>Salta silenzi · schermo intero</span><span><kbd>S</kbd><kbd>F</kbd></span></div>
-          <div><span>Libreria · controlli</span><span><kbd>L</kbd><kbd>P</kbd></span></div>
+          <div><span>Salta silenzi / schermo intero</span><span><kbd>S</kbd><kbd>F</kbd></span></div>
+          <div><span>Libreria / controlli</span><span><kbd>L</kbd><kbd>P</kbd></span></div>
         </div>
       </div>
     </div></div></aside>
@@ -178,9 +176,7 @@
 <div class="drop" id="drop"><div>Rilascia i file per importarli</div></div>
 <video id="pv" muted preload="auto" hidden></video>
 
-<script src="/brand/bands.js"></script>
 <script src="/brand/mascot.js"></script>
-<script src="bgfx.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

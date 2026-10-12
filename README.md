@@ -31,7 +31,7 @@ Internet → Traefik (Dokploy, HTTPS) → gateway:80 ─┬─ /            home
 
 - Solo il **gateway** ha un dominio. I tool non sono raggiungibili da fuori, solo attraverso il gateway, sulla rete interna `hub`.
 - Ogni tool è una cartella `tools/<id>/` con un file **`tool.json`**. Durante la build il gateway li legge tutti e genera:
-  - `tools.json`, l'elenco che la home usa per card, ricerca, categorie e vetrina animata;
+  - `tools.json`, l'elenco che la home usa per l'indice dei tool, la ricerca e il tool in evidenza;
   - una rotta Caddy `/<id>/` per ogni tool.
 - Quindi la home **non va mai modificata** per aggiungere un tool.
 
@@ -140,15 +140,13 @@ Il container aggiorna yt-dlp a ogni avvio e lo ricontrolla ogni 24 ore. Quando e
 
 Home, account e tool condividono lo stesso linguaggio visivo, servito dal gateway in `/brand/` (cartella `home/brand/`):
 
-- `brand.css`: colori (`--ink`, `--cream`, le 8 tavolozze degli inviti `--petrolio`, `--cobalto`…), font e classi pronte:
-  `k-mono` (etichette Space Mono), `k-display` (titoli Anton sfumati), `k-serif` (corsivo Instrument Serif), `k-glass`, `k-btn`, `k-logo`, `k-grain`;
-- `bands.js`: lo sfondo a bande di vetro degli inviti, animato. `Bands(canvas, { palette: 'cobalto' }).start()`;
+- `brand.css`: token (`--bg` foglio chiaro, `--surface` bianco per tessere e pannelli, `--line`, `--blue-line` per le linee di progetto, `--ink`, `--graphite`, `--night` per i pulsanti, `--sky`/`--peri` e `--grad` cielo → pervinca), il font Inter Tight (`--f-sans`, titoli a peso 400) e le classi `k-btn` (pillola blu notte, anche `k-btn ghost`), `k-logo`, `k-chip` (etichetta sopra i titoli) e `k-tile` (tessera bianca con icona iridescente: serve il blocco `<defs>` con `kgrad`/`kgradSoft`, vedi `home/index.html`);
 - `mascot.js`: Chill, la mascotte. `<k-mascot intro></k-mascot>` (salto + occhiolino, poi vivo), `<k-mascot pose="felice" still size="120"></k-mascot>` per una posa ferma
   (`base`, `chill`, `occhiolino`, `curioso`, `ciao`, `felice`). Su Safari usa il WebP animato, con "riduci movimento" la posa ferma;
 - `favicon.svg`, `logo.svg`.
 
 Un tool nuovo prende il marchio con una riga: `<link rel="stylesheet" href="/brand/brand.css">` (i template in `tools/_templates/` lo fanno già).
-Il colore della categoria del tool nella home viene da `tools/categories.json`.
+Regole del marchio: azioni in blu notte, il gradiente cielo → pervinca solo per icone, numeri importanti e bagliori; tessere bianche che fluttuano, linee di progetto sottili (tratteggi, crocette, archi) e un bagliore morbido sotto il contenuto principale. Le pause sono sempre pervinca tratteggiato. Niente colori per categoria.
 
 ## Aggiungere un tool
 
@@ -210,16 +208,14 @@ Regole per i tool con server:
   "description": "…",
   "tags": ["TXT", "PDF"],       // compaiono nella card e diventano filtri di ricerca
   "keywords": "domande test simulazione esame",
-  "featured": {                 // facoltativo: animazione a schermo intero nella home, sotto la ricerca
-    "headline": "Le lezioni, senza pause.",   // titolo del finale, sotto il logo
+  "featured": {                 // facoltativo: il tool in evidenza nella home, sotto la ricerca (vale il primo)
+    "headline": "Le lezioni, senza pause.",
     "sub": "Toglie i silenzi e la fa scorrere fino a 3×.",
-    "demo": "cut",              // il "film" da FILMS in home/home.js (senza: logo + titolo + pulsante)
-    "fx": "tunnel",             // sfondo: tunnel | topo | slats | waves (facoltativo)
-    "preset": { "cableColor": "#3d6ff5" }     // opzioni dello sfondo
+    "demo": "cut"               // facoltativo: "cut" mostra la barra con le pause tolte
   }
 }
 ```
-I nomi delle icone disponibili sono nell'oggetto `I` in `home/home.js`. Ogni tool con `featured` ha la sua sezione a schermo intero: lo scroll ci si aggancia (serve una spinta in più per andare oltre), parte quando è visibile, si ferma quando esce e alla fine resta sul logo con il pulsante Apri. Per un film nuovo aggiungi una voce a `FILMS` in `home/home.js` (`length`, `html()`, `mount()` che restituisce `render(ms)`) e gli stili in fondo a `home/home.css`; il film `cut` di StudyCut è un esempio completo.
+I nomi delle icone disponibili sono nell'oggetto `I` in `home/home.js`. Il primo tool con `featured` compare nella home sotto la ricerca, con titolo, frase e pulsante Apri.
 Se un `tool.json` contiene un errore, la build del gateway si ferma con un messaggio chiaro e il sito già online resta com'è.
 
 Per provare la generazione prima del push:

@@ -1,46 +1,52 @@
 /* StudyKit · linguaggio visivo condiviso (home, account, tool)
-   - fondo inchiostro, bande di vetro sfocate in diagonale (bands.js)
-   - titoli Anton maiuscoli con riempimento sfumato, etichette Space Mono spaziate, accenti Instrument Serif corsivo
-   - contenitori in vetro latteo, un solo colore chiaro: la crema della mascotte */
+   Foglio di vetro chiaro, linee di costruzione da progetto (tratteggi, crocette, archi),
+   tessere bianche che fluttuano con icone iridescenti cielo → pervinca, un bagliore morbido sotto i contenuti,
+   pulsanti a pillola blu notte. Titoli leggeri (Inter Tight 400), mai in grassetto pesante. */
 @import url(/brand/fonts.css);
 :root{
-  --ink:#0c0d0f; --ink-2:#121316; --ink-3:#191a1e;
-  --cream:#f6f0e6; --cream-2:#e9e1d3;
-  --c-text:#f3eee6; --c-muted:#a9a49b; --c-faint:#6f6b65;
-  --c-line:rgba(246,240,230,.09); --c-line-2:rgba(246,240,230,.16);
-  /* tavolozze degli inviti */
-  --petrolio:#3f9c97; --cobalto:#3d5bd8; --ruggine:#c25a34; --salvia:#7d8e46; --prugna:#8e4e8c; --ocra:#c99a2e; --rosa:#cf6a86; --ottanio:#2e7390;
-  --coral:#ee8a6c;
-  --f-display:"Anton","Impact","Arial Narrow Bold",sans-serif;
-  --f-mono:"Space Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
-  --f-serif:"Instrument Serif","Times New Roman",serif;
-  --f-sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",system-ui,sans-serif;
+  --bg:#f3f4f9;          /* foglio */
+  --surface:#ffffff;     /* tessere e pannelli */
+  --surface-2:#f7f8fc;
+  --line:#e5e6f0;        /* bordi */
+  --line-2:#d6d8ea;
+  --blue-line:#cfd3f3;   /* linee di costruzione */
+  --ink:#16162e;         /* testo */
+  --graphite:#666983;    /* testo secondario */
+  --faint-ink:#9a9cb3;
+  --night:#1c1b3d;       /* pulsanti principali */
+  --sky:#6fc0f5;
+  --peri:#8b89f4;
+  --peri-soft:#ecebfe;
+  --sky-soft:#e6f4fe;
+  --grad:linear-gradient(135deg,#76c6f7 0%,#8b89f4 100%);
+  --danger:#d9475a;
+  --f-sans:"Inter Tight",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --e-out:cubic-bezier(.16,1,.3,1);
+  --r-s:10px; --r-m:14px; --r-l:22px; --r-xl:28px;
+  --tile-shadow:0 1px 0 rgba(255,255,255,.9) inset,0 2px 6px rgba(40,44,110,.06),0 18px 36px -14px rgba(60,66,160,.22);
+  --card-shadow:0 1px 2px rgba(40,44,110,.05),0 12px 32px -18px rgba(60,66,160,.18);
 }
-/* etichetta: SBATTI CON */
-.k-mono{font:700 11.5px/1 var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--c-text)}
-/* titolo con riempimento sfumato e leggera aberrazione */
-.k-display{font-family:var(--f-display);font-weight:400;text-transform:uppercase;letter-spacing:.005em;line-height:.9;
-  background:linear-gradient(100deg,#e9f1ee 0%,#c9ded9 30%,#f1c6b4 62%,#f6f0e6 100%);-webkit-background-clip:text;background-clip:text;color:transparent;
-  filter:drop-shadow(-.6px 0 0 rgba(255,90,70,.35)) drop-shadow(.6px 0 0 rgba(70,140,255,.35))}
-.k-serif{font-family:var(--f-serif);font-style:italic;font-weight:400;letter-spacing:-.01em;
-  background:linear-gradient(95deg,#f6f0e6 0%,#d9e7e3 45%,#f0b9a6 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
-/* vetro latteo (contenitore del QR negli inviti) */
-.k-glass{position:relative;background:linear-gradient(160deg,rgba(246,240,230,.13),rgba(246,240,230,.05) 45%,rgba(246,240,230,.08));
-  backdrop-filter:blur(26px) saturate(150%);-webkit-backdrop-filter:blur(26px) saturate(150%);
-  box-shadow:inset 0 0 0 1px rgba(246,240,230,.16),inset 0 1px 0 rgba(255,255,255,.22),inset 0 -1px 0 rgba(0,0,0,.25)}
-/* pulsante crema */
-.k-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:46px;padding:0 20px;border-radius:999px;border:0;cursor:pointer;text-decoration:none;
-  font:700 12px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:#141210;
-  background:linear-gradient(180deg,#fbf7f0,#e6ddcd);box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgba(0,0,0,.12),0 12px 30px -14px rgba(246,240,230,.45);
-  transition:transform .45s cubic-bezier(.25,1,.4,1),filter .2s}
-.k-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transition:transform .4s cubic-bezier(.16,1,.3,1)}
-.k-btn:active{transform:scale(.96)}
-@media (hover:hover){.k-btn:hover{filter:brightness(1.04)}.k-btn:hover svg{transform:translate(2px,-2px)}}
-.k-btn.ghost{color:var(--c-text);background:rgba(246,240,230,.06);box-shadow:inset 0 0 0 1px var(--c-line-2)}
-/* marchio: anello con la faccia chill */
-.k-logo{display:inline-flex;align-items:center;gap:11px;text-decoration:none;color:var(--c-text)}
+/* pulsante principale: pillola blu notte con un filo di luce */
+.k-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 18px;border-radius:999px;border:0;cursor:pointer;text-decoration:none;
+  font:500 14.5px/1 var(--f-sans);color:#fff;background:var(--night);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 0 0 1px rgba(255,255,255,.06),0 8px 22px -8px rgba(80,84,220,.55);transition:transform .25s var(--e-out),box-shadow .25s}
+.k-btn::after{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(110deg,transparent 30%,rgba(140,190,255,.9) 70%,rgba(160,150,255,.9));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;opacity:.8}
+.k-btn:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 10px 28px -8px rgba(80,84,220,.7)}
+.k-btn:active{transform:scale(.97)}
+.k-btn.ghost{color:var(--ink);background:var(--surface);box-shadow:inset 0 0 0 1px var(--line-2)}
+.k-btn.ghost::after{display:none}
+.k-btn.ghost:hover{background:var(--surface-2)}
+/* marchio */
+.k-logo{display:inline-flex;align-items:center;gap:9px;text-decoration:none;color:var(--ink)}
 .k-logo svg{width:26px;height:26px;flex:none}
-.k-logo b{font:700 13px/1 var(--f-mono);letter-spacing:.16em;text-transform:uppercase}
-/* grana */
-.k-grain{position:absolute;inset:0;pointer-events:none;opacity:.07;mix-blend-mode:overlay;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+.k-logo b{font:600 18px/1 var(--f-sans);letter-spacing:-.03em}
+/* etichetta a pillola sopra i titoli */
+.k-chip{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px 0 6px;border-radius:999px;background:var(--surface);font:500 13px/1 var(--f-sans);color:var(--ink);
+  box-shadow:inset 0 0 0 1px var(--line),0 4px 14px -6px rgba(80,84,220,.35)}
+.k-chip svg{width:18px;height:18px}
+/* tessera di vetro con icona iridescente */
+.k-tile{display:grid;place-items:center;background:linear-gradient(160deg,#fff 0%,#f6f7fd 100%);border-radius:24px;box-shadow:var(--tile-shadow)}
+.k-tile svg{width:50%;height:50%;fill:none;stroke:url(#kgrad);stroke-width:2.1;stroke-linecap:round;stroke-linejoin:round}
+.k-tile svg .d{fill:url(#kgradSoft);stroke:none}
+.k-tile svg .f{fill:url(#kgrad);stroke:none}

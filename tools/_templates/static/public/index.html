@@ -3,27 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0c0d0f">
+<meta name="theme-color" content="#ffffff">
 <title>__NAME__ · StudyKit</title>
 <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
-<!-- marchio StudyKit: font, colori (--ink, --cream, --petrolio…) e classi k-mono, k-display, k-serif, k-glass, k-btn, k-logo -->
+<!-- marchio StudyKit: font, colori (--bg, --surface, --ink, --night, --grad…) e classi k-btn, k-logo, k-chip, k-tile -->
 <link rel="stylesheet" href="/brand/brand.css">
 <style>
-  :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--ink); color: var(--c-text); font: 15px/1.5 var(--f-sans); }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--f-sans); }
   main { max-width: 520px; }
-  h1 { font-size: clamp(44px, 8vw, 72px); margin: 14px 0 6px; }
-  .k-serif { font-size: 32px; margin: 0 0 18px; }
-  p { color: var(--c-muted); }
-  .k-btn { margin-top: 18px; }
+  h1 { font-size: clamp(36px, 6vw, 52px); line-height: 1.05; letter-spacing: -.045em; font-weight: 400; margin: 28px 0 10px; }
+  p { color: var(--graphite); margin: 0; }
+  .k-btn { margin-top: 24px; }
 </style>
 </head>
 <body>
   <main>
-    <a class="k-logo" href="../"><img src="/brand/logo.svg" alt="" width="26" height="26"><b>StudyKit</b></a>
-    <h1 class="k-display">__NAME__</h1>
-    <p class="k-serif">zero sbatti.</p>
+    <a class="k-logo" href="../"><img src="/brand/favicon.svg" alt="" width="24" height="24"><b>StudyKit</b></a>
+    <h1>__NAME__</h1>
     <p>Il tool gira tutto nel browser: metti qui HTML, CSS e JS (percorsi relativi, es. <code>app.js</code>).</p>
     <a class="k-btn" href="../">Torna ai tool</a>
   </main>
