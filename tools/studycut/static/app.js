@@ -796,13 +796,13 @@ const expSeen = new Set();
 function renderExports(reset) {
   const m = state.cur, ex = (m && m.exports) || [];
   if (reset) { expSeen.clear(); ex.forEach(e => expSeen.add(e.file)); }
-  $('#exports').innerHTML = ex.map(e => { const nw = !expSeen.has(e.file); expSeen.add(e.file);
+  $('#exList').innerHTML = ex.map(e => { const nw = !expSeen.has(e.file); expSeen.add(e.file);
     return `<div class="exp ${nw ? 'in' : ''}"><div class="n">${sp(e.speed)}${e.remove ? ' · senza silenzi' : ''}${e.cuts ? ' · senza tagli' : ''}
     <small>${fmt(e.duration)} · ${(e.size / 1e6).toFixed(e.size < 1e7 ? 1 : 0).replace('.', ',')} MB</small></div>
     <a href="media/${m.id}/${e.file}?dl=1">Salva</a>
     <button class="ib" data-del="${esc(e.file)}" title="Elimina">${ICON.x}</button></div>`; }).join('');
 }
-$('#exports').addEventListener('click', async e => {
+$('#exList').addEventListener('click', async e => {
   const b = e.target.closest('[data-del]'); if (!b) return;
   const row = b.closest('.exp');
   if (!reduce) await row.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateX(12px)' }], { duration: 200, easing: 'ease-in', fill: 'forwards' }).finished;

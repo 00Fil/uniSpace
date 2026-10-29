@@ -522,20 +522,23 @@ def special(toks, i, raw):
         if p.at() == "di":
             p.i += 1
             start = p.i
-            k = start + 1                      # il corpo arriva fino al differenziale ("d x" / "dx")
-            while k < len(p.t) and not (p.t[k] == "d" or re.fullmatch(r"d[a-z]", p.t[k] or "")):
-                k += 1
-            if k < len(p.t):
-                q = Parser(p.t[start:k])
-                q.raw = p.raw[start:k]
+            # il corpo arriva fino al differenziale: "d x", "di x" (come si pronuncia), "dx".  "di" e' anche la
+            # preposizione (f di x), quindi si provano tutti i candidati: prima quelli dopo "in" ("in d x"),
+            # poi il piu' lontano per cui il corpo si legge per intero
+            cands = []
+            for k in range(start + 1, len(p.t)):
+                w = p.t[k] or ""
+                if w in ("d", "di") and k + 1 < len(p.t) and len(p.t[k + 1] or "") == 1 and (p.t[k + 1] or "").isalpha():
+                    cands.append((k, p.t[k + 1], 2))
+                elif re.fullmatch(r"d[a-z]", w) and w not in ("di", "da", "de", "do"):
+                    cands.append((k, w[1], 1))
+            cands.sort(key=lambda c: (p.t[c[0] - 1] == "in", c[0]), reverse=True)
+            for k, var, used in cands:
+                end = k - 1 if p.t[k - 1] == "in" and k - 1 > start else k
+                q = Parser(p.t[start:end])
+                q.raw = p.raw[start:end]
                 body = q.relation()
-                if body is not None and q.i == k - start:
-                    if p.t[k] == "d":
-                        if k + 1 >= len(p.t) or len(p.t[k + 1]) > 2:
-                            return None
-                        var, used = p.t[k + 1], 2
-                    else:
-                        var, used = p.t[k][1], 1
+                if body is not None and q.i == end - start:
                     lim = f"_{{{lo}}}^{{{hi}}}" if lo is not None else ""
                     return rf"\int{lim} {body}\,d{var}", 1 + k + used
     # derivata di EXPR rispetto a X
