@@ -47,6 +47,7 @@ services:
     volumes:
       - userdata:/data/users
       - studycut-secrets:/app/secrets
+      - studycut-models:/models          # modello di trascrizione (circa 3 GB, scaricato al primo uso)
     expose:
       - "8765"
     networks:
@@ -73,3 +74,4 @@ volumes:
   account-data:
   userdata:
   studycut-secrets:
+  studycut-models:

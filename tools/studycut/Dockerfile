@@ -8,8 +8,8 @@ COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 
 RUN useradd --uid 1000 --create-home app \
  && python -m venv /opt/venv \
- && mkdir -p /app/library /app/secrets /data/users \
- && chown -R app:app /opt/venv /app /data
+ && mkdir -p /app/library /app/secrets /models /data/users \
+ && chown -R app:app /opt/venv /app /data /models
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -18,6 +18,8 @@ ENV PATH=/opt/venv/bin:$PATH \
     STUDYCUT_PORT=8765 \
     STUDYCUT_PARALLEL=3 \
     STUDYCUT_COOKIES=/app/secrets/cookies.txt \
+    STUDYCUT_MODELS=/models \
+    STUDYCUT_WHISPER_MODEL=large-v3 \
     YTDLP_AUTO_UPDATE=1 \
     YTDLP_UPDATE_HOURS=24
 
@@ -25,7 +27,7 @@ WORKDIR /app
 COPY --chown=app:app requirements.docker.txt ./
 USER app
 RUN pip install --no-cache-dir -r requirements.docker.txt
-COPY --chown=app:app server.py ./
+COPY --chown=app:app server.py transcribe.py mathspeech.py ./
 COPY --chown=app:app --chmod=755 entrypoint.sh ./
 COPY --chown=app:app static/ static/
 

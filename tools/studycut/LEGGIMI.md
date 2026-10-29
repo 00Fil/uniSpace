@@ -12,6 +12,7 @@ Nel container:
 | Variabile | Default | |
 |---|---|---|
 | `STUDYCUT_PARALLEL` | 3 | download contemporanei |
+| `STUDYCUT_WHISPER_MODEL` | large-v3 | modello di trascrizione (`medium`/`small` se il server è lento) |
 | `YTDLP_AUTO_UPDATE` | 1 | 0 per non aggiornare yt-dlp |
 | `YTDLP_UPDATE_HOURS` | 24 | ogni quante ore controllare gli aggiornamenti |
 
@@ -39,6 +40,12 @@ Al primo avvio l'app installa da sola yt-dlp e ffmpeg in un ambiente separato (`
 - **Libreria:** passando il mouse su un video parte un'anteprima a 10× con i tasti **Apri**, **Archivia** ed **Elimina** (clicca due volte per confermare). Su telefono tieni premuto. I video archiviati restano nella sezione "Archiviati" in fondo alla libreria.
 - Il tasto con la casetta in alto a sinistra torna alla home di uniSpace.
 - Scorciatoie: Spazio, ←/→ (10 s), ↑/↓ (volume), M (muto), F (schermo intero), [ ] (velocità), S (salta silenzi), L e P (sidebar)
+
+### Trascrizione, segnaposti, tagli, cartelle
+- **Trascrizione automatica** (Whisper large-v3, la più precisa): parte da sola su ogni nuovo video, una alla volta; può richiedere tempo (circa 3 GB di RAM; la prima volta scarica il modello). Si disattiva in Impostazioni. Il pannello a destra scorre come i testi di Spotify: la frase attuale si illumina lettera per lettera e le formule dette a voce diventano LaTeX (KaTeX). Doppio clic su una frase per correggerla (le formule vanno fra `$...$`). Esporta in `.txt`, `.tex` o PDF.
+- **Segnaposti** (tasto B): punti da ritrovare, con nome, visibili sulla barra. **Tagli** (I = inizio, O = fine): parti saltate come i silenzi senza toccare il video; tasto T o "Salta tagli" per attivarli/disattivarli.
+- **Libreria:** doppio clic sul titolo per rinominare; "Seleziona" per rinominare in serie (Analisi 1, 2, 3…) o spostare in cartelle; trascina un video su una cartella. "In corso" e le cartelle si aprono in una finestra a griglia.
+- **Impostazioni** (ingranaggio in alto): tempo risparmiato, velocità, lingua, qualità, esportazione e sensibilità dei silenzi.
 
 I video sono salvati nella cartella `library/`.
 
