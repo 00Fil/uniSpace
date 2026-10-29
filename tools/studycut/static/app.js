@@ -796,13 +796,13 @@ const expSeen = new Set();
 function renderExports(reset) {
   const m = state.cur, ex = (m && m.exports) || [];
   if (reset) { expSeen.clear(); ex.forEach(e => expSeen.add(e.file)); }
-  $('#exports').innerHTML = ex.map(e => { const nw = !expSeen.has(e.file); expSeen.add(e.file);
+  $('#exList').innerHTML = ex.map(e => { const nw = !expSeen.has(e.file); expSeen.add(e.file);
     return `<div class="exp ${nw ? 'in' : ''}"><div class="n">${sp(e.speed)}${e.remove ? ' · senza silenzi' : ''}${e.cuts ? ' · senza tagli' : ''}
     <small>${fmt(e.duration)} · ${(e.size / 1e6).toFixed(e.size < 1e7 ? 1 : 0).replace('.', ',')} MB</small></div>
     <a href="media/${m.id}/${e.file}?dl=1">Salva</a>
     <button class="ib" data-del="${esc(e.file)}" title="Elimina">${ICON.x}</button></div>`; }).join('');
 }
-$('#exports').addEventListener('click', async e => {
+$('#exList').addEventListener('click', async e => {
   const b = e.target.closest('[data-del]'); if (!b) return;
   const row = b.closest('.exp');
   if (!reduce) await row.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateX(12px)' }], { duration: 200, easing: 'ease-in', fill: 'forwards' }).finished;
@@ -1336,7 +1336,10 @@ async function trLoad(reset) {
     const from = reset ? 0 : TR.segs.length;
     const d = await api(`api/transcript?id=${id}&from=${from}`); if (seq !== TR.seq) return;
     if (reset || d.total < TR.segs.length) { TR.segs = d.segments; TR.built = 0; TR.cur = -1; $('#trList').innerHTML = ''; } else TR.segs.push(...d.segments);
+    const was = TR.status;
     Object.assign(TR, { status: d.status, lang: d.language, msg: d.msg || '' });
+    // a fine lavoro le frasi recuperate vengono riordinate sul server: ricarica tutto una volta
+    if (!reset && (was === 'running' || was === 'queued') && d.status === 'done') return trLoad(true);
     if (TR.segs.length && !window.katex) loadKatex().then(() => { if (seq === TR.seq) { TR.built = 0; TR.cur = -1; $('#trList').innerHTML = ''; trBuild(); } });
     trBuild(); trHead();
     if (d.status === 'running' || d.status === 'queued') TR.timer = setTimeout(() => trLoad(false), 2500);

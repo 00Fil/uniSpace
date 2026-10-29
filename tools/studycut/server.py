@@ -535,6 +535,10 @@ def job_transcribe(jid, sp, vid):
 
     try:
         lang, model = transcribe.run(FFMPEG, src, prefs["language"], on_seg, on_prog, lambda: mpath(lib, vid).exists(), dur)
+        # le frasi recuperate nella seconda passata arrivano in fondo: rimettile in ordine di tempo
+        t["segments"].sort(key=lambda g: g["s"])
+        for k, g in enumerate(t["segments"]):
+            g["id"] = k
         t["language"], t["model"] = lang, model
         save_tr(lib, vid, t)
         m = load_meta(lib, vid)
