@@ -21,6 +21,15 @@ PROMPTS = {
            "subspace, basis, dimension, rank, kernel, image, linear map, isomorphism, orthogonal, derivative, integral, limit, series, "
            "convergence, theorem, proof, for all, there exists, if and only if. We have x squared plus 3 x minus 5 equals 0, f of x."),
 }
+# vocabolario ripetuto in OGNI finestra da 30 s (il prompt iniziale vale solo per la prima)
+HOTWORDS = {
+    "it": "matrice determinante autovalori autovettori autospazio polinomio caratteristico sottospazio rango nucleo immagine "
+          "applicazione lineare isomorfismo ortogonale derivata integrale limite serie successione teorema dimostrazione lambda epsilon",
+    "en": "matrix determinant eigenvalues eigenvectors subspace rank kernel image linear map isomorphism orthogonal derivative "
+          "integral limit series theorem proof lambda epsilon",
+}
+# frasi che Whisper "inventa" sui silenzi: scartate nel recupero dei pezzi mancanti
+JUNK = re.compile(r"amara\.org|sottotitol|grazie (a tutti )?per (la visione|l'ascolto|aver guardato)|iscrivet|thanks for watching|subtitles by", re.I)
 _model, _lock = None, threading.Lock()
 
 
@@ -53,12 +62,18 @@ def get_model():
         return _model
 
 
+# passa-alto/basso sulla banda della voce, riduzione leggera del rumore e livellamento aggressivo:
+# le frasi dette piano (o lontano dal microfono) arrivano al modello quasi forti come le altre
+AUDIO_FILTER = ("highpass=f=60,lowpass=f=7800,afftdn=nr=10:nf=-30,"
+                "dynaudnorm=f=150:g=9:m=40:p=0.95:r=0.9,alimiter=limit=0.95")
+
+
 def load_audio(ffmpeg, src):
     """Audio 16 kHz mono come array numpy, con filtro passa-alto e volume uniforme (il parlato resta piu' chiaro
     per il modello). Passa da ffmpeg e non da PyAV: nessun file temporaneo e nessuna dipendenza fragile."""
     import numpy as np
     r = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000",
-                        "-af", "highpass=f=70,dynaudnorm=f=250:g=15:p=0.9", "-f", "s16le", "-"], capture_output=True)
+                        "-af", AUDIO_FILTER, "-f", "s16le", "-"], capture_output=True)
     if r.returncode != 0 or not r.stdout:
         raise RuntimeError("Audio non estraibile: " + r.stderr.decode("utf-8", "ignore").strip()[-200:])
     return np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768.0
@@ -68,8 +83,53 @@ def to_units(words):
     return mathspeech.convert([{"w": w.word, "s": round(w.start, 3), "e": round(w.end, 3)} for w in words if w.word.strip()])
 
 
+def _opts(lang, **kw):
+    o = dict(language=lang, task="transcribe", beam_size=BEAM, best_of=5, patience=1.2,
+             temperature=[0.0, 0.2, 0.4, 0.6, 0.8], word_timestamps=True,
+             # senza contesto della finestra precedente Whisper non "salta" pezzi di frase per inseguire il testo gia' scritto;
+             # il vocabolario del corso resta grazie a hotwords, ripetuto in ogni finestra
+             condition_on_previous_text=False, hotwords=HOTWORDS.get(lang or "it", HOTWORDS["it"]),
+             no_speech_threshold=0.85, compression_ratio_threshold=2.4, log_prob_threshold=-1.0,
+             repetition_penalty=1.05, no_repeat_ngram_size=0)
+    o.update(kw)
+    return o
+
+
+def _speech_gaps(audio, segs, sr=16000, min_gap=0.8):
+    """Intervalli non coperti dalla trascrizione in cui pero' c'e' voce (energia sopra il rumore di fondo)."""
+    import numpy as np
+    hop = int(sr * 0.03)
+    n = len(audio) // hop
+    if n < 10:
+        return []
+    rms = np.sqrt((audio[: n * hop].reshape(n, hop) ** 2).mean(axis=1) + 1e-12)
+    floor = float(np.percentile(rms, 15))
+    thr = max(floor * 2.5, 0.004)
+    cover, t = [], 0.0
+    for s in sorted(segs, key=lambda x: x["s"]):
+        if s["s"] - t >= min_gap:
+            cover.append((t, s["s"]))
+        t = max(t, s["e"])
+    total = len(audio) / sr
+    if total - t >= min_gap:
+        cover.append((t, total))
+    out = []
+    for a, b in cover:
+        fr = rms[int(a / 0.03): int(b / 0.03)]
+        if len(fr) and (fr > thr).mean() > 0.12:            # almeno il 12% del tratto ha voce
+            # spezza i buchi lunghi in pezzi da max 25 s (una finestra di Whisper)
+            x = a
+            while x < b - 0.3:
+                out.append((x, min(b, x + 25.0)))
+                x += 25.0
+    return out
+
+
 def run(ffmpeg, src, language, on_segment, on_progress, alive, duration):
-    """Trascrive e chiama on_segment(seg) per ogni frase appena pronta. Restituisce (lingua, modello)."""
+    """Trascrive e chiama on_segment(seg) per ogni frase appena pronta. Restituisce (lingua, modello).
+    Due passate: la prima con il rilevatore di voce (VAD) tarato largo; la seconda ritrascrive, senza VAD e con
+    volume alzato, ogni tratto rimasto scoperto in cui c'e' comunque voce (frasi dette piano, code di frase)."""
+    import numpy as np
     if not have_whisper():
         raise RuntimeError("faster-whisper non installato: esegui  pip install -U faster-whisper")
     on_progress(0.0, "Preparo l'audio...")
@@ -78,24 +138,53 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration):
         on_progress(0.0, "Carico il modello (la prima volta lo scarica)...")
         model = get_model()
         lang = None if language in (None, "", "auto") else language
-        segs, info = model.transcribe(
-            audio, language=lang, task="transcribe", beam_size=BEAM, best_of=5, patience=1.2,
-            temperature=[0.0, 0.2, 0.4, 0.6], condition_on_previous_text=True,
-            initial_prompt=PROMPTS.get(lang or "it", PROMPTS["it"]), word_timestamps=True,
-            vad_filter=True, vad_parameters={"threshold": 0.4, "min_silence_duration_ms": 700, "speech_pad_ms": 300},
-            no_speech_threshold=0.5, compression_ratio_threshold=2.2, log_prob_threshold=-1.0,
-            hallucination_silence_threshold=2.0, repetition_penalty=1.05)
-        n = 0
+        segs, info = model.transcribe(audio, **_opts(
+            lang, initial_prompt=PROMPTS.get(lang or "it", PROMPTS["it"]), vad_filter=True,
+            # soglia bassa e margini ampi: meglio passare al modello un po' di silenzio che perdere una frase sussurrata
+            vad_parameters={"threshold": 0.2, "neg_threshold": 0.1, "min_speech_duration_ms": 0,
+                            "min_silence_duration_ms": 1500, "speech_pad_ms": 800}))
+        lang = lang or info.language
+        n, done = 0, []
         for s in segs:
             if not alive():
                 raise RuntimeError("Interrotta: video eliminato")
             words = s.words or []
             units = to_units(words) if words else [{"k": "w", "x": s.text.strip(), "s": round(s.start, 3), "e": round(s.end, 3)}]
             if units:
-                on_segment({"id": n, "s": round(s.start, 3), "e": round(s.end, 3), "u": units})
+                seg = {"id": n, "s": round(s.start, 3), "e": round(s.end, 3), "u": units}
+                on_segment(seg); done.append(seg)
                 n += 1
-            on_progress(min(0.99, s.end / max(duration, 1)), f"Trascrizione  {int(min(0.99, s.end / max(duration, 1)) * 100)}%")
-        return info.language, MODEL
+            on_progress(min(0.9, 0.9 * s.end / max(duration, 1)), f"Trascrizione  {int(min(0.9, 0.9 * s.end / max(duration, 1)) * 100)}%")
+
+        # ---- seconda passata: recupero dei pezzi persi
+        gaps = _speech_gaps(audio, done)
+        for k, (a, b) in enumerate(gaps):
+            if not alive():
+                raise RuntimeError("Interrotta: video eliminato")
+            on_progress(0.9 + 0.09 * k / max(len(gaps), 1), f"Recupero le parti dette piano  {k + 1}/{len(gaps)}")
+            i0, i1 = max(0, int((a - 0.4) * 16000)), min(len(audio), int((b + 0.4) * 16000))
+            clip = audio[i0:i1]
+            peak = float(np.abs(clip).max()) if len(clip) else 0
+            if peak < 1e-4:
+                continue
+            clip = np.clip(clip * min(8.0, 0.9 / peak), -1, 1).astype(np.float32)
+            off = i0 / 16000
+            sub, _ = model.transcribe(clip, **_opts(lang, vad_filter=False, temperature=[0.0, 0.2, 0.4], no_speech_threshold=0.9))
+            for s in sub:
+                if JUNK.search(s.text or "") or s.avg_logprob < -1.3:
+                    continue
+                # tieni solo le parole sicure e che cadono davvero nel buco (non doppioni delle frasi gia' presenti)
+                ws = [w for w in (s.words or []) if w.probability >= 0.25 and a - 0.15 <= w.start + off and w.end + off <= b + 0.15]
+                if not ws:
+                    continue
+                for w in ws:
+                    w.start, w.end = w.start + off, w.end + off
+                units = to_units(ws)
+                if units:
+                    seg = {"id": n, "s": round(ws[0].start, 3), "e": round(ws[-1].end, 3), "u": units}
+                    on_segment(seg); done.append(seg)
+                    n += 1
+        return lang, MODEL
     finally:
         del audio
 

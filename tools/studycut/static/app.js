@@ -1336,7 +1336,10 @@ async function trLoad(reset) {
     const from = reset ? 0 : TR.segs.length;
     const d = await api(`api/transcript?id=${id}&from=${from}`); if (seq !== TR.seq) return;
     if (reset || d.total < TR.segs.length) { TR.segs = d.segments; TR.built = 0; TR.cur = -1; $('#trList').innerHTML = ''; } else TR.segs.push(...d.segments);
+    const was = TR.status;
     Object.assign(TR, { status: d.status, lang: d.language, msg: d.msg || '' });
+    // a fine lavoro le frasi recuperate vengono riordinate sul server: ricarica tutto una volta
+    if (!reset && (was === 'running' || was === 'queued') && d.status === 'done') return trLoad(true);
     if (TR.segs.length && !window.katex) loadKatex().then(() => { if (seq === TR.seq) { TR.built = 0; TR.cur = -1; $('#trList').innerHTML = ''; trBuild(); } });
     trBuild(); trHead();
     if (d.status === 'running' || d.status === 'queued') TR.timer = setTimeout(() => trLoad(false), 2500);
