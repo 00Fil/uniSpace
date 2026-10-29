@@ -385,6 +385,11 @@ $('#fwGrid').addEventListener('click', async e => {
   open(c.dataset.id);
 });
 const refreshLib = () => { libKey = ''; return loadLib(); };
+// trascinare video sulla finestra di una cartella aperta li sposta in quella cartella
+fwin.addEventListener('dragover', e => { if (fw.mode === 'folder' && [...e.dataTransfer.types].includes('text/x-sc')) { e.preventDefault(); fwin.classList.add('drop'); } });
+fwin.addEventListener('dragleave', e => { if (!fwin.contains(e.relatedTarget)) fwin.classList.remove('drop'); });
+fwin.addEventListener('drop', async e => { fwin.classList.remove('drop'); if (fw.mode !== 'folder') return; e.preventDefault(); e.stopPropagation();
+  await post('api/move', { ids: JSON.parse(e.dataTransfer.getData('text/x-sc')), folder: fw.id }); state.sel.clear(); refreshLib(); });
 // dialoghi
 let dlgRes = null;
 function dialog({ title, text = '', body = '', ok = 'OK', input = null, hideOk = false }) {
@@ -447,10 +452,16 @@ function updSel() {
   const n = state.sel.size; $('#selN').textContent = n === 1 ? '1 scelto' : `${n} scelti`;
   $('#selBar').classList.toggle('show', !!state.selecting);
   $('#selRen').disabled = $('#selMove').disabled = !n;
-  document.querySelectorAll('#lib .item[data-id]').forEach(it => it.classList.toggle('sel', state.sel.has(it.dataset.id)));
+  const all = [...document.querySelectorAll('#lib .item[data-id]')].map(x => x.dataset.id), full = all.length > 0 && all.every(i => state.sel.has(i));
+  $('#selAll').textContent = full ? 'Deseleziona tutto' : 'Seleziona tutto'; $('#selAll').disabled = !all.length;
+  document.querySelectorAll('#lib .item[data-id]').forEach(it => it.classList.toggle('picked', state.sel.has(it.dataset.id)));
 }
 $('#selMode').onclick = () => setSelecting(!state.selecting);
 $('#selX').onclick = () => setSelecting(false);
+$('#selAll').onclick = () => {
+  const all = [...document.querySelectorAll('#lib .item[data-id]')].map(x => x.dataset.id), full = all.every(i => state.sel.has(i));
+  state.sel.clear(); if (!full) all.forEach(i => state.sel.add(i)); updSel();
+};
 const selIds = () => [...document.querySelectorAll('#lib .item[data-id]')].map(x => x.dataset.id).filter(id => state.sel.has(id));
 $('#selRen').onclick = () => renameSeries(selIds());
 $('#selMove').onclick = () => moveTo(selIds());
@@ -566,7 +577,7 @@ const IC = {
 };
 function itemHTML(m, k, nw) {
   const th = m.thumb ? `media/${m.id}/${m.thumb}` : '';
-  return `<div class="item ${state.cur && state.cur.id === m.id ? 'on' : ''} ${nw && !reduce ? 'in' : ''} ${state.sel.has(m.id) ? 'sel' : ''}" style="--i:${nw ? Math.min(k, 10) : 0}" data-id="${m.id}" draggable="true">
+  return `<div class="item ${state.cur && state.cur.id === m.id ? 'on' : ''} ${nw && !reduce ? 'in' : ''} ${state.sel.has(m.id) ? 'picked' : ''}" style="--i:${nw ? Math.min(k, 10) : 0}" data-id="${m.id}" draggable="true">
     <div class="irow">
       <span class="chk"><svg viewBox="0 0 24 24"><path d="m6 12.5 4 4 8-9"/></svg></span>
       <div class="thumb" style="${th ? `background-image:url('${th}')` : ''}">${m.audio ? `<span class="badge">${ICON.audio}</span>` : ''}</div>
@@ -650,12 +661,14 @@ libEl.addEventListener('dblclick', e => { const t = e.target.closest('.item[data
 // trascina un video su una cartella per spostarlo
 libEl.addEventListener('dragstart', e => { const it = e.target.closest('.item[data-id]'); if (!it) return; stopPreview();
   const ids = state.selecting && state.sel.has(it.dataset.id) ? [...state.sel] : [it.dataset.id];
-  e.dataTransfer.setData('text/x-sc', JSON.stringify(ids)); e.dataTransfer.effectAllowed = 'move'; });
+  if (!state.selecting && !state.sel.has(it.dataset.id) && ids.length === 1) { /* trascinamento di un solo video */ }
+  e.dataTransfer.setData('text/x-sc', JSON.stringify(ids)); e.dataTransfer.effectAllowed = 'move';
+  if (ids.length > 1 && e.dataTransfer.setDragImage) { const g = document.createElement('div'); g.className = 'drag-img'; g.textContent = `${ids.length} video`; document.body.append(g); e.dataTransfer.setDragImage(g, 20, 16); setTimeout(() => g.remove(), 0); } });
 const dropTarget = e => e.dataTransfer && [...e.dataTransfer.types].includes('text/x-sc') && e.target.closest('.item.folder');
 libEl.addEventListener('dragover', e => { const f = dropTarget(e); document.querySelectorAll('.item.folder.drop').forEach(x => x !== f && x.classList.remove('drop')); if (f) { e.preventDefault(); f.classList.add('drop'); } });
 libEl.addEventListener('dragleave', e => { if (e.target.closest) { const f = e.target.closest('.item.folder'); if (f && !f.contains(e.relatedTarget)) f.classList.remove('drop'); } });
 libEl.addEventListener('drop', async e => { const f = dropTarget(e); if (!f) return; e.preventDefault(); e.stopPropagation(); f.classList.remove('drop');
-  await post('api/move', { ids: JSON.parse(e.dataTransfer.getData('text/x-sc')), folder: f.dataset.fid }); refreshLib(); });
+  await post('api/move', { ids: JSON.parse(e.dataTransfer.getData('text/x-sc')), folder: f.dataset.fid }); state.sel.clear(); refreshLib(); });
 libEl.addEventListener('contextmenu', e => { if (e.target.closest('.item') && matchMedia('(hover:none)').matches) e.preventDefault(); });
 
 libEl.addEventListener('click', async e => {
@@ -663,7 +676,13 @@ libEl.addEventListener('click', async e => {
   const it = e.target.closest('.item'); if (!it) return;
   if (it._lp) { it._lp = false; return; }
   if (it.dataset.fid) { e.stopPropagation(); return fw.mode === 'folder' && fw.id === it.dataset.fid ? closeFw() : openFw('folder', it.dataset.fid, it); }
-  if (state.selecting && !e.target.closest('.pa')) { const i = it.dataset.id; state.sel.has(i) ? state.sel.delete(i) : state.sel.add(i); return updSel(); }
+  if ((state.selecting || e.ctrlKey || e.metaKey || e.shiftKey) && !e.target.closest('.pa')) {
+    if (!state.selecting) { state.selecting = true; $('#left').classList.add('selecting'); $('#selMode').classList.add('on'); if (state.cur && !e.shiftKey) state.sel.add(state.cur.id); }
+    const i = it.dataset.id, ids = [...document.querySelectorAll('#lib .item[data-id]')].map(x => x.dataset.id);
+    if (e.shiftKey && state.selLast && ids.includes(state.selLast)) { const a = ids.indexOf(state.selLast), b = ids.indexOf(i); ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => state.sel.add(x)); }
+    else state.sel.has(i) ? state.sel.delete(i) : state.sel.add(i);
+    state.selLast = i; e.preventDefault(); updSel(); return;
+  }
   const id = it.dataset.id, act = (e.target.closest('.pa') || {}).dataset?.act || 'open';
   e.stopPropagation();
   if (act === 'archive' || act === 'unarchive') {

@@ -692,13 +692,19 @@ input[type=range]::-webkit-slider-thumb,input[type=range]::-moz-range-thumb{back
 .chk{width:0;overflow:hidden;opacity:0;flex:none;display:grid;place-items:center;transition:width var(--d-3) var(--e-out),opacity var(--d-2)}
 .chk svg{width:18px;height:18px;padding:3px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--line-2);fill:none;stroke:transparent;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;transition:background var(--d-2),stroke var(--d-2)}
 .selecting .chk{width:24px;opacity:1}
-.item.sel .chk svg{background:var(--primary);stroke:var(--on-primary);box-shadow:none}
-.item.sel{background:var(--surface-2)}
+.item.picked .chk svg{background:var(--primary);stroke:var(--on-primary);box-shadow:none}
+.item.picked{background:var(--surface-2)}
 .selecting .item.hov .pvw{grid-template-rows:0fr}
-.selbar{display:flex;align-items:center;gap:6px;padding:0 12px;height:0;overflow:hidden;flex:none;border-top:1px solid transparent;transition:height var(--d-4) var(--e-out),padding var(--d-4) var(--e-out)}
-.selbar.show{height:52px;border-top-color:var(--line)}
-.selbar span{flex:1;font-size:12px;color:var(--muted);white-space:nowrap}
-.selbar .btn{padding:0 10px;font-size:12px}
+/* barra di selezione: due righe, non si sovrappone a nulla */
+.selbar{display:flex;flex-direction:column;gap:8px;padding:0 12px;max-height:0;overflow:hidden;flex:none;border-top:1px solid transparent;transition:max-height var(--d-4) var(--e-out),padding var(--d-4) var(--e-out)}
+.selbar.show{max-height:110px;padding:10px 12px 12px;border-top-color:var(--line)}
+.selbar-t{display:flex;align-items:center;gap:8px}
+.selbar-t span{flex:1;font-size:12px;color:var(--muted);white-space:nowrap}
+.selbar-b{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.selbar .btn{padding:0 8px;font-size:12px;height:32px}
+.selbar .tr-act:disabled{opacity:.35;pointer-events:none}
+.drag-img{position:fixed;left:-300px;top:-300px;padding:8px 14px;border-radius:999px;background:#f6f0e6;color:#141210;font:700 12px/1 system-ui;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.fwin.drop .fwin-in{box-shadow:inset 0 0 0 2px var(--text),0 40px 90px -20px rgba(0,0,0,.85)}
 /* finestra flottante */
 .fwin{position:fixed;left:calc(var(--side-l) + 14px);top:calc(var(--hd) + 12px);z-index:55;width:min(760px,calc(100vw - var(--side-l) - var(--side-r) - 36px));max-height:calc(100dvh - var(--hd) - 40px);display:flex;
   pointer-events:none;visibility:hidden;transition:visibility 0s .35s}
