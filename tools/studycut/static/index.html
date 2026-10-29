@@ -124,6 +124,7 @@
             <a class="ib" id="origDl" title="Salva l'originale"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 20h14"/></svg></a>
             <button class="ib" id="delBtn" title="Elimina"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg></button>
           </div>
+          <button class="now" id="nowLine" type="button" hidden><span class="now-k" id="nowK">Nel video adesso</span><span class="now-t" id="nowT"></span></button>
         </div>
       </div>
     </main>
@@ -225,6 +226,8 @@
 </section>
 <div class="fwin" id="fwin" role="dialog" aria-modal="false"><div class="fwin-in">
   <div class="fwin-h"><b id="fwT"></b><span id="fwS"></span><span class="grow"></span>
+    <button class="btn btn-s fw-cancel" id="fwCancelQ" type="button" hidden>Svuota la coda</button>
+    <button class="btn btn-s fw-cancel" id="fwCancelAll" type="button" hidden>Annulla tutto</button>
     <button class="ib sm" id="fwRen" title="Rinomina in serie" hidden><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg></button>
     <button class="ib sm" id="fwEdit" title="Rinomina cartella" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h6"/></svg></button>
     <button class="ib sm" id="fwDel" title="Elimina cartella" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg></button>
@@ -232,6 +235,17 @@
   <div class="fgrid" id="fwGrid"></div></div></div>
 <div class="dlg" id="dlg"><form class="dlg-in pop" id="dlgF"><b id="dlgT"></b><p id="dlgP"></p><div id="dlgB"></div>
   <div class="dlg-f"><button type="button" class="btn btn-s" id="dlgNo">Annulla</button><button type="submit" class="btn btn-p" id="dlgOk">OK</button></div></form></div>
+<div class="mp" id="mini" hidden>
+  <button class="mini-go" id="miniGo" type="button" aria-label="Torna al video"><span class="mini-th" id="miniTh"></span><span class="mini-t"><b id="miniT"></b><small id="miniS"></small></span></button>
+  <button class="ib mini-pp" id="miniPP" type="button" aria-label="Play / pausa"><svg class="i-play" viewBox="0 0 24 24"><path d="M8.5 5.6v12.8a1 1 0 0 0 1.5.86l10.4-6.4a1 1 0 0 0 0-1.72L10 4.74a1 1 0 0 0-1.5.86z"/></svg><svg class="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.3"/><rect x="13.5" y="5" width="4" height="14" rx="1.3"/></svg></button>
+  <span class="mini-bar"><i id="miniBar"></i></span>
+</div>
+<nav class="mnav" id="mnav" aria-label="Navigazione">
+  <button type="button" data-nav="l" id="navL"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></svg><span>Libreria</span></button>
+  <button type="button" data-nav="v" id="navV"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3.5"/><path d="M10.2 9.4v5.2l4.4-2.6z" fill="currentColor"/></svg><span>Guarda</span></button>
+  <button type="button" data-nav="r" id="navR"><svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h8"/></svg><span>Testo</span></button>
+  <button type="button" data-nav="a" id="navA"><svg viewBox="0 0 24 24"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14"/></svg><span>Attività</span><em id="navAN"></em></button>
+</nav>
 <div class="toasts" id="toasts"></div>
 <div class="drop" id="drop"><div>Rilascia i file per importarli</div></div>
 <video id="pv" muted preload="auto" hidden></video>

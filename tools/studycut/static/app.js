@@ -79,7 +79,8 @@ function tween(el, to, render, ms = 420) {
 const bump = el => { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); };
 const replay = (el, cls = 'go') => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
 
-/* ---------- sidebars (desktop: colonne · mobile: drawer + bottom sheet) ---------- */
+const fw = { mode: null, id: null };
+/* ---------- sidebars (desktop: colonne · mobile: schermate a tutto schermo con barra in basso) ---------- */
 const sideOpen = w => !app.classList.contains(w === 'l' ? 'no-l' : 'no-r');
 function setSide(w, open, persist = true) {
   if (open && isMob()) app.classList.add(w === 'l' ? 'no-r' : 'no-l'); // su mobile uno alla volta
@@ -89,7 +90,7 @@ function setSide(w, open, persist = true) {
   app.classList.toggle('m-open', isMob() && (sideOpen('l') || sideOpen('r')));
   for (const s of ['#left', '#right']) $(s).style.transform = '';
   setTimeout(() => { tlKey = ''; segInd(); }, 460);
-  renderJobsHeader();
+  renderJobsHeader(); navSync();
 }
 // alla prima apertura le sidebar si aprono entrambe; poi si ricorda la scelta
 const wantSide = w => isMob() ? false : localStorage['side_' + w] ? localStorage['side_' + w] === '1' : true;
@@ -97,6 +98,51 @@ function initSides() { setSide('l', wantSide('l'), false); setSide('r', wantSide
 $('#tglL').onclick = () => setSide('l', !sideOpen('l'));
 $('#tglR').onclick = () => setSide('r', !sideOpen('r'));
 $('#actInd').onclick = () => setSide('l', true);
+/* barra in basso (solo mobile): Libreria · Guarda · Testo · Attività */
+function navSync() {
+  const on = !isMob() ? null : fw.mode === 'jobs' ? 'a' : sideOpen('l') ? 'l' : sideOpen('r') ? 'r' : 'v';
+  document.querySelectorAll('#mnav button').forEach(b => { b.classList.toggle('on', b.dataset.nav === on); b.setAttribute('aria-current', b.dataset.nav === on ? 'page' : 'false'); });
+  miniSync();
+}
+$('#mnav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return; const k = b.dataset.nav;
+  if (!$('#settings').hidden) toggleSettings(false);
+  if (k !== 'a') closeFw();
+  if (k === 'l') setSide('l', true);
+  else if (k === 'r') setSide('r', true);
+  else if (k === 'v') { setSide('l', false); setSide('r', false); }
+  else if (fw.mode === 'jobs') { closeFw(); }
+  else { setSide('l', false); setSide('r', false); openFw('jobs', null, null); }
+  navSync();
+});
+function miniSync() {
+  const show = isMob() && !!state.cur && (sideOpen('l') || sideOpen('r')) && fw.mode !== 'jobs', mini = $('#mini');
+  mini.hidden = !show; document.body.classList.toggle('has-mini', show);
+  if (!show) return;
+  const m = state.cur;
+  if (mini._k !== m.id) { mini._k = m.id; $('#miniTh').style.backgroundImage = m.thumb ? `url('media/${m.id}/${m.thumb}')` : ''; $('#miniT').textContent = m.title; }
+  const t = curT(), d = durT();
+  $('#miniS').textContent = `${fmt(t)} / ${fmt(d)}`;
+  $('#miniBar').style.transform = `scaleX(${clamp(t / Math.max(1, d), 0, 1)})`;
+  mini.classList.toggle('playing', !video.paused);
+}
+$('#miniPP').onclick = () => togglePlay(false);
+$('#miniGo').onclick = () => { setSide('l', false); setSide('r', false); navSync(); };
+setInterval(() => { if (!$('#mini').hidden) miniSync(); }, 400);
+// riga "nel video adesso" sotto al player (mobile): la frase che si sta dicendo, tocca per aprire il testo
+let nowI = -2;
+function nowSync() {
+  const el = $('#nowLine'); if (!el) return;
+  const m = state.cur, ok = isMob() && m && TR.id === m.id && TR.segs.length;
+  if (!isMob() || !m) { el.hidden = true; return; }
+  if (!ok) { const run = TR.id === m.id && (TR.status === 'running' || TR.status === 'queued'); el.hidden = !run; if (run) { $('#nowK').textContent = 'Trascrizione'; $('#nowT').textContent = TR.status === 'queued' ? 'In coda…' : 'In corso… il testo comparirà qui.'; nowI = -2; } return; }
+  const t = curT(), segs = TR.segs; let lo = 0, hi = segs.length - 1, i = -1;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (segs[mid].s <= t + .05) { i = mid; lo = mid + 1; } else hi = mid - 1; }
+  el.hidden = false; $('#nowK').textContent = 'Nel video adesso';
+  if (i !== nowI) { nowI = i; $('#nowT').innerHTML = i < 0 ? '<span class="now-w">…</span>' : segHTML(segs[i], false); }
+}
+setInterval(nowSync, 500);
+$('#nowLine').onclick = () => { setSide('r', true); setTab('tr'); navSync(); };
 $('#scrim').onclick = () => { setSide('l', false); setSide('r', false); };
 const fitMob = () => { $('#quality option[value=audio]').textContent = isMob() ? 'Audio' : 'Solo audio'; renderBulk(); syncPaste(); };
 onMq(() => { if (!app.classList.contains('pre')) initSides(); fitMob(); });
@@ -249,7 +295,7 @@ async function download(urls) {
   try {
     await post('api/download', { urls, quality: $('#quality').value });
     state.links = []; $('#url').value = ''; setLook(null); setBulk(false); $('#url').blur(); syncPaste();
-    if (isMob()) toast(urls.length > 1 ? `${urls.length} download avviati` : 'Download avviato', 'Tocca l\'indicatore in alto per seguirli');
+    if (isMob()) toast(urls.length > 1 ? `${urls.length} download avviati` : 'Download avviato', 'Li trovi in Attività, in basso');
     else if (!sideOpen('l')) setSide('l', true);
     pollJobs();
   } catch (err) { toast('Impossibile scaricare', err.message, 'err'); }
@@ -342,7 +388,6 @@ $('#quality').value = localStorage.quality || '720';
 $('#quality').onchange = e => { localStorage.quality = e.target.value; };
 
 /* ---------- finestra flottante (cartelle: "In corso" e cartelle della libreria) + dialoghi ---------- */
-const fw = { mode: null, id: null };
 const fwin = $('#fwin');
 function placeFw(anchor) {
   if (isMob() || !anchor) { fwin.style.removeProperty('--ox'); fwin.style.removeProperty('--oy'); return; }
@@ -350,18 +395,18 @@ function placeFw(anchor) {
   fwin.style.setProperty('--ox', `${r.left + r.width / 2 - f.left}px`); fwin.style.setProperty('--oy', `${r.top + r.height / 2 - f.top}px`);
 }
 function openFw(mode, id, anchor) {
-  fw.mode = mode; fw.id = id; fwin.classList.add('show'); $('#fwGrid').scrollTop = 0;
+  fw.mode = mode; fw.id = id; fwin.classList.add('show'); fwin.classList.toggle('jobs', mode === 'jobs'); $('#fwGrid').classList.toggle('jobs', mode === 'jobs'); ['#fwCancelQ', '#fwCancelAll'].forEach(x => $(x).hidden = true); $('#fwGrid').scrollTop = 0; navSync();
   $('#fwGrid').innerHTML = ''; jobEls.clear(); libKey = '';
   renderFw(); placeFw(anchor);
 }
-function closeFw() { if (!fw.mode) return; fw.mode = null; fw.id = null; fwin.classList.remove('show'); setTimeout(() => { if (!fw.mode) $('#fwGrid').innerHTML = ''; jobEls.clear(); }, 400); }
+function closeFw() { if (!fw.mode) return; fw.mode = null; fw.id = null; fwin.classList.remove('show'); fwin.classList.remove('jobs'); navSync(); setTimeout(() => { if (!fw.mode) $('#fwGrid').innerHTML = ''; jobEls.clear(); }, 400); }
 function renderFw() {
   if (!fw.mode) return;
   const folder = fw.mode === 'folder' ? state.folders.find(f => f.id === fw.id) : null;
   if (fw.mode === 'folder' && !folder) return closeFw();
   const vids = folder ? state.lib.filter(m => !m.archived && m.folder === folder.id) : [];
   ['#fwRen', '#fwEdit', '#fwDel'].forEach(s => $(s).hidden = !folder);
-  $('#fwT').textContent = folder ? folder.name : 'In corso';
+  $('#fwT').textContent = folder ? folder.name : 'Attività';
   $('#fwS').textContent = folder ? `${vids.length} video` : '';
   if (!folder) return;
   const key = JSON.stringify(vids.map(m => [m.id, m.title, m.thumb, m.duration]));
@@ -374,10 +419,30 @@ function renderFw() {
 }
 $('#fwClose').onclick = closeFw;
 document.addEventListener('pointerdown', e => {
-  if (fw.mode && !e.target.closest('#fwin,#actFold,.item.folder,#dlg,.toast')) closeFw();
+  if (fw.mode && !e.target.closest('#fwin,#actFold,.item.folder,#dlg,.toast,#mnav')) closeFw();
 }, true);
 $('#actFold').onclick = () => fw.mode === 'jobs' ? closeFw() : openFw('jobs', null, $('#actFold'));
+// lavori: annulla, sposta in coda, riprova
+async function jobAct(jid, act) {
+  const j = state.jobs.find(x => x.id === jid); if (!j) return;
+  try {
+    if (act === 'x') {
+      if (j.cancelable) { await post('api/jobs/cancel', { id: jid }); toast('Annullato', jobTitle(j)); }
+      else state.dis.add(jid);
+    } else if (act === 'retry') {
+      state.dis.add(jid); await post('api/download', { urls: [j.url], quality: $('#quality').value });
+    } else await post('api/jobs/move', { id: jid, to: act });
+  } catch (err) { toast('Non riuscito', err.message, 'err'); }
+  pollJobs();
+}
+$('#fwCancelAll').onclick = async () => {
+  const n = state.jobs.filter(j => j.cancelable).length; if (!n) return;
+  if (await dialog({ title: n === 1 ? 'Annullare questo lavoro?' : `Annullare tutti i ${n} lavori?`, text: 'Quelli in corso si fermano e il lavoro fatto finora va perso. I video già nella libreria restano.', ok: 'Annulla tutto', no: 'Indietro' }) === null) return;
+  await post('api/jobs/cancel', { all: true }).catch(() => {}); pollJobs();
+};
+$('#fwCancelQ').onclick = async () => { await post('api/jobs/cancel', { all: true, queued_only: true }).catch(() => {}); pollJobs(); };
 $('#fwGrid').addEventListener('click', async e => {
+  const jb = e.target.closest('[data-j]'); if (jb) { const w = jb.closest('.job-w'); return jobAct(w.dataset.jid, jb.dataset.j); }
   const out = e.target.closest('[data-out]');
   if (out) { await post('api/move', { ids: [out.dataset.out], folder: null }); return refreshLib(); }
   const c = e.target.closest('.vcard'); if (!c) return;
@@ -392,11 +457,11 @@ fwin.addEventListener('drop', async e => { fwin.classList.remove('drop'); if (fw
   await post('api/move', { ids: JSON.parse(e.dataTransfer.getData('text/x-sc')), folder: fw.id }); state.sel.clear(); refreshLib(); });
 // dialoghi
 let dlgRes = null;
-function dialog({ title, text = '', body = '', ok = 'OK', input = null, hideOk = false }) {
+function dialog({ title, text = '', body = '', ok = 'OK', no = 'Annulla', input = null, hideOk = false }) {
   return new Promise(res => {
     const d = $('#dlg'); $('#dlgT').textContent = title; $('#dlgP').textContent = text; $('#dlgP').hidden = !text;
     $('#dlgB').innerHTML = input ? (input.area ? `<textarea id="dlgI" class="dlg-i area" maxlength="4000" rows="5" spellcheck="true">${esc(input.value || '')}</textarea>` : `<input id="dlgI" class="dlg-i" maxlength="120" spellcheck="false" autocomplete="off" placeholder="${esc(input.placeholder || '')}" value="${esc(input.value || '')}">`) + (input.extra || '') : body;
-    $('#dlgOk').textContent = ok; $('#dlgOk').hidden = hideOk; d.classList.add('show');
+    $('#dlgOk').textContent = ok; $('#dlgNo').textContent = no; $('#dlgOk').hidden = hideOk; d.classList.add('show');
     const done = v => { d.classList.remove('show'); dlgRes = null; res(v); };
     dlgRes = done;
     $('#dlgF').onsubmit = e => { e.preventDefault(); done(input ? $('#dlgI').value.trim() : true); };
@@ -479,6 +544,7 @@ async function pollJobs() {
     if (j.status === 'running' || j.status === 'queued' || state.seen.has(j.id)) continue;
     state.seen.add(j.id);
     if (j.status === 'error' && j.kind === 'prepare' && state.cur && state.cur.id === j.video) await open(j.video);
+    if (j.status === 'cancelled') { if (j.kind === 'transcribe' && state.cur && state.cur.id === j.video) trLoad(true); continue; }
     if (j.status === 'error') { toast(`${KIND[j.kind]} non riuscito`, `${j.title || j.url || ''}\n${j.message}`, 'err'); continue; }
     const r = j.result || {};
     if (j.kind === 'download' || j.kind === 'upload') { await loadLib(); if (!state.cur) await open(r.video); }
@@ -491,25 +557,47 @@ async function pollJobs() {
 setInterval(pollJobs, 800);
 const firstPoll = api('api/jobs').then(js => js.forEach(j => j.ended && state.seen.add(j.id))).catch(() => {});
 const jobEls = new Map();
+state.dis = new Set();   // lavori terminati che l'utente ha tolto dall'elenco
 function renderJobsHeader() {
   const active = state.jobs.filter(j => j.status === 'running' || j.status === 'queued');
   $('#actInd').classList.toggle('show', active.length > 0 && !sideOpen('l'));
   if (active.length) $('#actN').textContent = isMob() ? String(active.length) : active.length === 1 ? '1 in corso' : `${active.length} in corso`;
   $('#actCount').textContent = active.length || '';
+  $('#navAN').textContent = active.length || '';
 }
 function jobThumb(j) { const lib = state.lib.find(m => m.id === j.video); return j.thumb || (lib && lib.thumb ? `media/${lib.id}/${lib.thumb}` : ''); }
 function jobTitle(j) { return j.title || (j.url ? shortUrl(j.url).host + ' · ' + shortUrl(j.url).rest : KIND[j.kind]); }
-function fillJobEl(w, j) {
-  const el = w.querySelector('.job'), th = jobThumb(j);
-  const sub = j.status === 'queued' ? 'In coda' : j.status === 'done' ? 'Completato' : j.status === 'error' ? 'Non riuscito' : (j.message || '');
-  const title = jobTitle(j);
-  el.className = `job ${j.status}`;
+const JI = {
+  top: '<svg viewBox="0 0 24 24"><path d="M6 5h12M12 19V9m0 0-4.5 4.5M12 9l4.5 4.5"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></svg>',
+  dn: '<svg viewBox="0 0 24 24"><path d="m6 10 6 6 6-6"/></svg>',
+  retry: '<svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.3-5.2L19 9"/><path d="M19 4.5V9h-4.5"/></svg>',
+  x: ICON.x,
+};
+const jobMsg = j => j.status === 'queued' ? (j.pos ? `In coda · ${j.pos}° di ${j.of}` : 'In coda')
+  : j.status === 'done' ? 'Completato' : j.status === 'cancelled' ? 'Annullato' : j.status === 'error' ? (j.message || 'Non riuscito') : (j.message || '');
+const jobCanRetry = j => (j.status === 'error' || j.status === 'cancelled') && j.kind === 'download' && !!j.url;
+function jobEl(j) {
+  const w = document.createElement('div'); w.className = 'job-w' + (reduce ? '' : ' in'); w.dataset.jid = j.id;
+  w.innerHTML = `<div><div class="job"><div class="thumb"></div><div class="info"><div class="t"></div><div class="s"></div><div class="pb"><i></i></div></div>
+    <div class="jact"><button type="button" class="ib sm j-top" data-j="top" title="Porta in cima alla coda" aria-label="Porta in cima alla coda">${JI.top}</button>
+    <button type="button" class="ib sm j-up" data-j="up" title="Anticipa" aria-label="Anticipa">${JI.up}</button>
+    <button type="button" class="ib sm j-dn" data-j="down" title="Posticipa" aria-label="Posticipa">${JI.dn}</button>
+    <button type="button" class="ib sm j-retry" data-j="retry" title="Riprova" aria-label="Riprova">${JI.retry}</button>
+    <button type="button" class="ib sm j-x" data-j="x" title="Annulla" aria-label="Annulla">${JI.x}</button></div></div></div>`;
+  return w;
+}
+function fillJobEl(w, j, q) {
+  const el = w.querySelector('.job'), th = jobThumb(j), sub = jobMsg(j), title = jobTitle(j);
+  el.className = `job ${j.status}${q && q.i === 0 ? ' first' : ''}${q && q.i === q.n - 1 ? ' last' : ''}${jobCanRetry(j) ? ' canretry' : ''}${j.cancelable ? ' cancelable' : ''}`;
   const tb = el.querySelector('.thumb'), thKey = th + '|' + !!j.audio;
   if (tb._k !== thKey) { tb._k = thKey; tb.style.backgroundImage = th ? `url('${th}')` : ''; tb.innerHTML = (j.audio ? `<span class="badge">${ICON.audio}</span>` : '') + ICON.tick; }
-  const t = el.querySelector('.t'), full = (j.kind !== 'download' ? KIND[j.kind] + ' \u00b7 ' : '') + title;
+  const t = el.querySelector('.t'), full = (j.kind !== 'download' ? KIND[j.kind] + ' · ' : '') + title;
   if (t.textContent !== full) { t.textContent = full; t.title = title; }
-  el.querySelector('.s').textContent = sub;
-  el.querySelector('.pb i').style.transform = j.status === 'queued' ? '' : `scaleX(${j.status === 'done' ? 1 : clamp(j.progress, 0, 1)})`;
+  const sEl = el.querySelector('.s'); if (sEl.textContent !== sub) { sEl.textContent = sub; sEl.title = sub; }
+  el.querySelector('.pb i').style.transform = j.status === 'queued' ? '' : `scaleX(${j.status === 'done' ? 1 : j.status === 'cancelled' ? 0 : clamp(j.progress, 0, 1)})`;
+  const x = el.querySelector('.j-x'), lbl = j.cancelable ? 'Annulla' : 'Rimuovi dall’elenco';
+  if (x.title !== lbl) { x.title = lbl; x.setAttribute('aria-label', lbl); }
 }
 // "In corso" e' una cartella: occupa lo spazio di un solo video; la griglia completa sta nella finestra
 function renderJobFolder(vis) {
@@ -518,35 +606,53 @@ function renderJobFolder(vis) {
   const k = ths.join('|') + shown.length;
   if (stk._k !== k) { stk._k = k;
     stk.innerHTML = ths.map((t, i) => `<span class="stk-i" style="--i:${i};${t ? `background-image:url('${t}')` : ''}"></span>`).reverse().join('') || '<span class="stk-i"></span>'; }
-  const n = act.length, p = shown.length ? shown.reduce((a, j) => a + (j.status === 'done' ? 1 : j.status === 'error' ? 0 : clamp(j.progress, 0, 1)), 0) / shown.length : 0;
-  swapText($('#actT'), n ? (n === 1 ? '1 in corso' : `${n} in corso`) : 'Completati');
-  const run = act.find(j => j.status === 'running');
-  $('#actS').textContent = run ? (run.message || jobTitle(run)) : n ? 'In coda' : 'Pronti nella libreria';
+  const run = act.filter(j => j.status === 'running'), qd = act.filter(j => j.status === 'queued');
+  const p = shown.length ? shown.reduce((a, j) => a + (j.status === 'done' ? 1 : j.status === 'error' || j.status === 'cancelled' ? 0 : clamp(j.progress, 0, 1)), 0) / shown.length : 0;
+  swapText($('#actT'), act.length ? (run.length ? `${run.length} in corso` : 'In coda') : vis.some(j => j.status === 'error') ? 'Qualcosa non è andato' : 'Completati');
+  $('#actS').textContent = run.length ? (run[0].message || jobTitle(run[0])) + (qd.length ? `  ·  +${qd.length} in coda` : '') : qd.length ? `${qd.length} in attesa` : 'Tocca per i dettagli';
   $('#actBar').style.transform = `scaleX(${clamp(p, 0, 1)})`;
 }
+const GRP = { running: ['run', 'In corso'], queued: ['que', 'In coda'] };
 function renderJobs() {
   const now = Date.now() / 1000;
-  const vis = state.jobs.filter(j => !j.ended || now - j.ended < (j.status === 'error' ? 12 : 3))
-    .filter(j => (j.kind !== 'analyze' && j.kind !== 'prepare') || !j.ended || j.status === 'error').sort((a, b) => a.created - b.created);
+  const vis = state.jobs.filter(j => !state.dis.has(j.id))
+    .filter(j => !j.ended || now - j.ended < (j.status === 'error' ? 600 : j.status === 'cancelled' ? 4 : 3))
+    .filter(j => (j.kind !== 'analyze' && j.kind !== 'prepare') || !j.ended || j.status === 'error');
   $('#actSec').classList.toggle('show', vis.length > 0);
   renderJobsHeader();
   renderJobFolder(vis); trProgress();
   if (fw.mode === 'jobs' && !vis.length) closeFw();
-  const box = $('#fwGrid'), keep = new Set();
+  const box = $('#fwGrid');
   if (fw.mode !== 'jobs') { jobEls.clear(); }
-  else for (const j of vis) {
-    keep.add(j.id);
-    let w = jobEls.get(j.id);
-    if (!w || !w.isConnected) {
-      w = document.createElement('div'); w.className = 'job-w' + (reduce ? '' : ' in');
-      w.innerHTML = `<div><div class="job"><div class="thumb"></div><div class="info"><div class="t"></div><div class="s"></div><div class="pb"><i></i></div></div></div></div>`;
-      jobEls.set(j.id, w); box.append(w);
+  else {
+    const run = vis.filter(j => j.status === 'running').sort((a, b) => a.created - b.created);
+    const que = vis.filter(j => j.status === 'queued').sort((a, b) => (a.pos || 99) - (b.pos || 99) || a.created - b.created);
+    const end = vis.filter(j => j.status !== 'running' && j.status !== 'queued').sort((a, b) => (b.ended || 0) - (a.ended || 0));
+    const groups = [['run', 'In corso', run], ['que', 'In coda', que], ['end', 'Terminati', end]];
+    const order = [], keep = new Set();
+    for (const [g, label, list] of groups) {
+      if (!list.length) continue;
+      let h = box.querySelector(`.jh[data-g="${g}"]`);
+      if (!h) { h = document.createElement('div'); h.className = 'jh'; h.dataset.g = g; h.innerHTML = '<span></span><em></em>'; }
+      h.firstChild.textContent = label; h.lastChild.textContent = list.length; order.push(h);
+      list.forEach((j, i) => {
+        keep.add(j.id);
+        let w = jobEls.get(j.id);
+        if (!w || !w.isConnected) { w = jobEl(j); jobEls.set(j.id, w); }
+        fillJobEl(w, j, g === 'que' ? { i, n: list.length } : null); order.push(w);
+      });
     }
-    fillJobEl(w, j);
-  }
-  for (const [id, w] of jobEls) if (!keep.has(id) && !w._out) {
-    w._out = true; w.classList.remove('in'); w.classList.add('out');
-    setTimeout(() => { w.remove(); jobEls.delete(id); }, 480);
+    box.classList.add('jobs');
+    order.forEach((n, i) => { if (box.children[i] !== n) box.insertBefore(n, box.children[i] || null); });
+    box.querySelectorAll('.jh').forEach(h => { if (!order.includes(h)) h.remove(); });
+    for (const [id, w] of jobEls) if (!keep.has(id) && !w._out) {
+      w._out = true; w.classList.remove('in'); w.classList.add('out');
+      setTimeout(() => { w.remove(); jobEls.delete(id); }, 480);
+    }
+    const cancelable = vis.filter(j => j.cancelable), qd = vis.filter(j => j.status === 'queued');
+    $('#fwT').textContent = 'Attività';
+    $('#fwS').textContent = [run.length ? `${run.length} in corso` : '', qd.length ? `${qd.length} in coda` : ''].filter(Boolean).join(' · ');
+    $('#fwCancelQ').hidden = qd.length < 2; $('#fwCancelAll').hidden = !cancelable.length;
   }
   // pulsanti con avanzamento nel pannello
   const cur = state.cur && state.cur.id;
@@ -1526,6 +1632,7 @@ function toggleSettings(on) {
 $('#setBtn').onclick = () => toggleSettings(); $('#setBack').onclick = () => toggleSettings(false);
 const fitSet = () => document.documentElement.style.setProperty('--hdh', document.querySelector('header').offsetHeight + 'px');
 addEventListener('resize', fitSet); fitSet();
+if (window.ResizeObserver) new ResizeObserver(fitSet).observe(document.querySelector('header'));
 async function loadPrefs() {
   try { const p = await api('api/prefs'); $('#prefAuto').classList.toggle('on', !!p.autotranscribe); $('#prefAuto').setAttribute('aria-checked', !!p.autotranscribe); $('#prefLang').value = p.language; $('#prefVocab').value = p.vocab || ''; } catch {}
 }

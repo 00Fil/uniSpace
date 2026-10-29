@@ -127,21 +127,30 @@ FF_MAJOR = ffmpeg_major() if FFMPEG else 0
 
 # ---------------------------------------------------------------- jobs
 JOBS, LOCK = {}, threading.Lock()
+SCHED = threading.Condition(LOCK)     # sveglia i lavori in attesa quando cambia la coda
 
 
-DL_SEM = threading.Semaphore(int(os.environ.get("STUDYCUT_PARALLEL", "3")))
-CPU_SEM = threading.Semaphore(2)      # esportazioni e conversioni
-AN_SEM = threading.Semaphore(3)       # ricerca delle pause (veloce)
-TR_SEM = threading.Semaphore(1)       # trascrizioni: pesanti, una alla volta
-PREP_SEM = threading.Semaphore(2)     # versioni senza pause in streaming: non aspettano le esportazioni
+class Cancelled(Exception):
+    """Lavoro annullato dall'utente."""
+
+
+# lavori che possono andare insieme, per tipo; gli altri aspettano in coda nell'ordine di priorita'
+POOLS = {"dl": int(os.environ.get("STUDYCUT_PARALLEL", "3")),   # download
+         "cpu": 2,      # esportazioni e conversioni
+         "an": 3,       # ricerca delle pause (veloce)
+         "tr": 1,       # trascrizioni: pesanti, una alla volta
+         "prep": 2}     # versioni senza pause in streaming: non aspettano le esportazioni
+DL_SEM, CPU_SEM, AN_SEM, TR_SEM, PREP_SEM = "dl", "cpu", "an", "tr", "prep"
 
 
 def new_job(kind, vid=None, owner="local", **extra):
     jid = uuid.uuid4().hex[:10]
+    now = time.time()
     with LOCK:
         JOBS[jid] = {"id": jid, "kind": kind, "video": vid, "owner": owner, "status": "queued",
                      "progress": 0.0, "message": "In coda", "result": None,
-                     "created": time.time(), "ended": None, "title": None, "thumb": None, **extra}
+                     "created": now, "ended": None, "title": None, "thumb": None,
+                     "rank": now, "cancel": False, "pool": None, **extra}
     return jid
 
 
@@ -150,28 +159,156 @@ def upd(jid, **kw):
         JOBS[jid].update(kw)
 
 
+def cancelled(jid):
+    j = JOBS.get(jid)
+    return bool(j and j.get("cancel"))
+
+
+def check_cancel(jid):
+    if cancelled(jid):
+        raise Cancelled()
+
+
+def _acquire(jid, pool):
+    """Aspetta il proprio turno nel gruppo: parte il primo in coda (per priorita') quando c'e' posto."""
+    with SCHED:
+        JOBS[jid]["pool"] = pool
+        SCHED.notify_all()
+        while True:
+            j = JOBS[jid]
+            if j["cancel"]:
+                raise Cancelled()
+            if sum(1 for x in JOBS.values() if x["pool"] == pool and x["status"] == "running") < POOLS[pool]:
+                first = min((x for x in JOBS.values() if x["pool"] == pool and x["status"] == "queued"),
+                            key=lambda x: (x["rank"], x["created"]))
+                if first["id"] == jid:
+                    j["status"], j["message"] = "running", "In avvio..."
+                    return
+            SCHED.wait(1.0)
+
+
+def _after_cancel(jid, args):
+    """Rimette a posto lo stato del video quando un lavoro viene annullato prima (o mentre) parte."""
+    try:
+        kind = JOBS[jid]["kind"]
+        if kind == "transcribe":
+            sp, vid = args[0], args[1]
+            if mpath(sp.lib, vid).exists():
+                m = load_meta(sp.lib, vid)
+                if (m.get("transcript") or {}).get("status") in ("queued", "running"):
+                    m.pop("transcript", None)
+                    save_meta(sp.lib, m)
+                    tr_path(sp.lib, vid).unlink(missing_ok=True)
+        elif kind == "prepare":
+            sp, vid, key, gfile = args[0], args[1], args[2], args[5]
+            with LOCK:
+                if PREP.get((sp.uid, vid)) == key:
+                    PREP.pop((sp.uid, vid), None)
+            if mpath(sp.lib, vid).exists():
+                shutil.rmtree(sp.lib / vid / f"cut_{key}", ignore_errors=True)
+                m = load_meta(sp.lib, vid)
+                if m.get("cut") and m["cut"].get("key") == key and not m["cut"].get("ready", True):
+                    m["cut"] = None
+                    save_meta(sp.lib, m)
+            if gfile is not None:
+                gfile.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def run_job(jid, fn, *args, sem=None):
     def worker():
+        got = False
         try:
             if sem:
-                sem.acquire()
-            upd(jid, status="running", message="In avvio...")
-            fn(jid, *args)
+                _acquire(jid, sem)
+                got = True
+            else:
+                upd(jid, status="running", message="In avvio...")
+            fn(jid, *args)          # se e' finito prima che l'annullamento lo raggiungesse, il lavoro e' comunque fatto
             upd(jid, status="done", progress=1.0, ended=time.time())
+        except Cancelled:
+            upd(jid, status="cancelled", message="Annullato", ended=time.time())
+            _after_cancel(jid, args)
         except Exception as e:  # noqa
-            upd(jid, status="error", message=str(e).strip()[-400:] or "Errore sconosciuto",
-                ended=time.time())
+            if cancelled(jid):      # l'errore e' solo la conseguenza dell'annullamento (es. processo fermato)
+                upd(jid, status="cancelled", message="Annullato", ended=time.time())
+                _after_cancel(jid, args)
+            else:
+                upd(jid, status="error", message=str(e).strip()[-400:] or "Errore sconosciuto", ended=time.time())
         finally:
-            if sem:
-                sem.release()
+            with SCHED:
+                JOBS[jid]["pool"] = None
+                SCHED.notify_all()
     threading.Thread(target=worker, daemon=True).start()
 
 
 def jobs_snapshot(owner=None):
     now = time.time()
     with LOCK:
-        return [{k: v for k, v in j.items() if k != "owner"} for j in JOBS.values()
-                if (owner is None or j["owner"] == owner) and (not j["ended"] or now - j["ended"] < 30)]
+        queued = {}
+        for j in sorted(JOBS.values(), key=lambda x: (x["rank"], x["created"])):
+            if j["status"] == "queued" and j["pool"]:
+                queued.setdefault(j["pool"], []).append(j["id"])
+        out = []
+        for j in JOBS.values():
+            if (owner is not None and j["owner"] != owner) or (j["ended"] and now - j["ended"] >= (600 if j["status"] == "error" else 30)):
+                continue
+            d = {k: v for k, v in j.items() if k not in ("owner", "rank", "pool")}
+            if j["status"] == "queued" and j["pool"] in queued:
+                q = queued[j["pool"]]
+                d["pos"], d["of"] = q.index(j["id"]) + 1, len(q)
+            d["cancelable"] = j["status"] in ("queued", "running") and j["kind"] != "upload"
+            out.append(d)
+        return out
+
+
+def cancel_jobs(owner, ids=None, queued_only=False):
+    """Annulla i lavori indicati (o tutti quelli dell'utente). Quelli in coda spariscono subito, quelli in corso
+    si fermano appena possibile. Restituisce quanti ne ha annullati."""
+    n = 0
+    with SCHED:
+        for j in JOBS.values():
+            if j["owner"] != owner or j["status"] not in ("queued", "running") or j["kind"] == "upload":
+                continue
+            if (ids is not None and j["id"] not in ids) or (queued_only and j["status"] != "queued"):
+                continue
+            j["cancel"] = True
+            if j["status"] == "queued":
+                j["status"], j["message"], j["ended"] = "cancelled", "Annullato", time.time()
+            else:
+                j["message"] = "Mi fermo..."
+            n += 1
+        SCHED.notify_all()
+    return n
+
+
+def move_job(owner, jid, to):
+    """Cambia la posizione di un lavoro in coda: top (subito dopo quelli in corso), bottom, up, down."""
+    with SCHED:
+        j = JOBS.get(jid)
+        if not j or j["owner"] != owner or j["status"] != "queued" or not j["pool"]:
+            return False
+        q = sorted((x for x in JOBS.values() if x["status"] == "queued" and x["pool"] == j["pool"] and x["owner"] == owner),
+                   key=lambda x: (x["rank"], x["created"]))
+        allq = sorted((x for x in JOBS.values() if x["status"] == "queued" and x["pool"] == j["pool"]), key=lambda x: (x["rank"], x["created"]))
+        i = q.index(j)
+        if to == "top":
+            j["rank"] = allq[0]["rank"] - 1
+        elif to == "bottom":
+            j["rank"] = allq[-1]["rank"] + 1
+        elif to == "up" and i > 0:
+            a, b = q[i - 1], j
+            a["rank"], b["rank"] = b["rank"], a["rank"]
+            if a["rank"] == b["rank"]:
+                b["rank"] -= 0.001
+        elif to == "down" and i < len(q) - 1:
+            a, b = j, q[i + 1]
+            a["rank"], b["rank"] = b["rank"], a["rank"]
+            if a["rank"] == b["rank"]:
+                a["rank"] += 0.001
+        SCHED.notify_all()
+    return True
 
 
 # ---------------------------------------------------------------- library
@@ -385,6 +522,7 @@ def job_download(jid, sp, url, quality):
         f"bv*[height<={h}]+ba/b[height<={h}]/b")
 
     def hook(s):
+        check_cancel(jid)
         info = s.get("info_dict") or {}
         with LOCK:
             j = JOBS[jid]
@@ -453,6 +591,8 @@ def job_download(jid, sp, url, quality):
         auto = True
     except Exception as e:
         shutil.rmtree(d, ignore_errors=True)
+        if isinstance(e, Cancelled) or cancelled(jid):
+            raise Cancelled()
         if isinstance(e, QuotaError) or "Spazio esaurito" in str(e):
             raise RuntimeError(re.sub(r"^.*?(Spazio esaurito)", r"\1", str(e)))
         msg = re.sub(r"\x1b\[[0-9;]*m", "", str(e)).replace("ERROR: ", "")
@@ -534,7 +674,7 @@ def job_transcribe(jid, sp, vid):
         upd(jid, progress=p, message=msg)
 
     try:
-        lang, model = transcribe.run(FFMPEG, src, prefs["language"], on_seg, on_prog, lambda: mpath(lib, vid).exists(), dur, prefs.get("vocab", ""))
+        lang, model = transcribe.run(FFMPEG, src, prefs["language"], on_seg, on_prog, lambda: mpath(lib, vid).exists() and not cancelled(jid), dur, prefs.get("vocab", ""))
         # le frasi recuperate nella seconda passata arrivano in fondo: rimettile in ordine di tempo
         t["segments"].sort(key=lambda g: g["s"])
         for k, g in enumerate(t["segments"]):
@@ -546,6 +686,12 @@ def job_transcribe(jid, sp, vid):
         save_meta(lib, m)
         upd(jid, result={"video": vid}, message="Trascrizione pronta")
     except Exception as e:
+        if cancelled(jid) and mpath(lib, vid).exists():     # annullata: torna come se non fosse mai partita
+            tr_path(lib, vid).unlink(missing_ok=True)
+            m = load_meta(lib, vid)
+            m.pop("transcript", None)
+            save_meta(lib, m)
+            raise Cancelled()
         if mpath(lib, vid).exists():
             save_tr(lib, vid, t)
             m = load_meta(lib, vid)
@@ -598,6 +744,10 @@ def job_analyze(jid, sp, vid, noise, mind, pad):
                          errors="ignore")
     sil, cur = [], None
     for line in p.stderr:  # universal newlines: also splits on \r
+        if cancelled(jid):
+            p.kill()
+            p.wait()
+            raise Cancelled()
         if "silence_start" in line:
             cur = float(re.search(r"silence_start:\s*(-?[\d.]+)", line)[1])
         elif "silence_end" in line:
@@ -807,7 +957,9 @@ def run_ffmpeg(jid, cmd, sp, out_dur, label, alive=None):
     for line in p.stdout:
         if time.time() - last > 2:
             last = time.time()
-            if sp.quota is not None and sp.over():
+            if cancelled(jid):
+                why = "cancel"
+            elif sp.quota is not None and sp.over():
                 why = "quota"
             elif alive and not alive():
                 why = "stop"
@@ -900,6 +1052,8 @@ def job_prepare(jid, sp, vid, key, cmd, out_dur, gfile):
         except QuotaError as e:
             raise QuotaError(f"{e} Intanto i silenzi vengono saltati durante la riproduzione.")
         code, why, err = run_ffmpeg(jid, cmd, sp, out_dur, "Preparo la versione senza pause", alive)
+        if why == "cancel":
+            raise Cancelled()
         if why == "quota":
             raise QuotaError(f"Spazio esaurito: hai raggiunto {gb(sp.quota)}. "
                              "Intanto i silenzi vengono saltati durante la riproduzione.")
@@ -922,8 +1076,9 @@ def job_prepare(jid, sp, vid, key, cmd, out_dur, gfile):
             m = load_meta(lib, vid)
             if m.get("cut") and m["cut"].get("key") == key:
                 m["cut"] = None
-                m["cut_error"] = {"key": key, "msg": str(e)[-300:], "quota": isinstance(e, QuotaError),
-                                  "at": time.time()}
+                if not isinstance(e, Cancelled):      # annullata: niente errore, i silenzi si saltano comunque in riproduzione
+                    m["cut_error"] = {"key": key, "msg": str(e)[-300:], "quota": isinstance(e, QuotaError),
+                                      "at": time.time()}
                 save_meta(lib, m)
         except Exception:
             pass
@@ -950,6 +1105,7 @@ def wait_cut(jid, sp, vid, key):
     che ricominciare da zero dall'originale, e poi l'esportazione e' quasi istantanea."""
     k = (sp.uid, vid)
     while PREP.get(k) == key:
+        check_cancel(jid)
         with LOCK:
             pj = next((j for j in JOBS.values() if j["kind"] == "prepare" and j["video"] == vid
                        and j["owner"] == sp.uid and not j["ended"]), None)
@@ -1018,6 +1174,8 @@ def job_export(jid, sp, vid, speed, remove, cuts=False):
         else:
             cmd, _, _, gfile = build_cmd(src, tmp, is_audio, keep=keep, speed=speed, x264="superfast", gdir=lib / vid)
         code, why, err = run_ffmpeg(jid, cmd, sp, out_dur, "Esportazione", lambda: mpath(lib, vid).exists())
+        if why == "cancel":
+            raise Cancelled()
         if why == "quota":
             raise QuotaError(f"Spazio esaurito durante l'esportazione: hai raggiunto {gb(sp.quota)}. "
                              "Elimina qualche video e riprova.")
@@ -1338,6 +1496,16 @@ class H(BaseHTTPRequestHandler):
             return self.send_json({"jobs": jobs})
         if parts[:2] == ["api", "folders"]:
             return self.folders_post(sp, parts[2:], data)
+        if parts == ["api", "jobs", "cancel"]:
+            ids = [i for i in (data.get("ids") or []) if isinstance(i, str)] if not data.get("all") else None
+            if data.get("id"):
+                ids = [str(data["id"])]
+            n = cancel_jobs(sp.uid, ids, queued_only=bool(data.get("queued_only")))
+            return self.send_json({"cancelled": n})
+        if parts == ["api", "jobs", "move"]:
+            if data.get("to") not in ("top", "bottom", "up", "down"):
+                return self.err("Spostamento non valido")
+            return self.send_json({"ok": move_job(sp.uid, str(data.get("id")), data["to"])})
         if parts == ["api", "prefs"]:
             p = load_prefs(lib)
             if "autotranscribe" in data:
