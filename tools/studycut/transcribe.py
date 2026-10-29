@@ -11,42 +11,18 @@ THREADS = int(os.environ.get("STUDYCUT_WHISPER_THREADS", "0"))      # 0 = tutti 
 BEAM = int(os.environ.get("STUDYCUT_WHISPER_BEAM", "10"))
 
 # parole che Whisper sbaglia di piu' in una lezione di matematica: nel prompt iniziale lo "orientano"
-# prompt iniziale corto (solo lo stile: formule dette a voce, punteggiatura). Il vocabolario sta in HOTWORDS.
-# Attenzione al budget: prompt + hotwords + testo devono stare nei 448 token di una finestra di Whisper.
+# parole che Whisper sbaglia di piu' in una lezione di matematica: nel prompt iniziale lo "orientano".
+# Whisper ne legge al massimo ~220 token; le parole del corso dell'utente vanno in fondo (la parte che resta).
 PROMPTS = {
-    "it": "Lezione universitaria di matematica. Si ha x al quadrato più 3 x meno 5 uguale a 0, f di x, una matrice n per n, lambda.",
-    "en": "University mathematics lecture. We have x squared plus 3 x minus 5 equals 0, f of x, an n by n matrix, lambda.",
+    "it": ("Lezione universitaria di matematica: algebra lineare, geometria e analisi. Matrice, determinante, autovalori, autovettori, "
+           "autospazio, polinomio caratteristico, spazio vettoriale, sottospazio, combinazione lineare, base, dimensione, rango, nucleo, "
+           "immagine, applicazione lineare, endomorfismo, isomorfismo, ortogonale, prodotto scalare, derivata, integrale, limite, serie, "
+           "convergenza, successione, funzione continua, teorema, dimostrazione, ipotesi, tesi, per ogni, esiste, se e solo se. "
+           "Si ha x al quadrato più 3 x meno 5 uguale a 0, f di x, una matrice n per n, lambda, epsilon, delta, R n."),
+    "en": ("University mathematics lecture: linear algebra, geometry and calculus. Matrix, determinant, eigenvalues, eigenvectors, vector space, "
+           "subspace, basis, dimension, rank, kernel, image, linear map, isomorphism, orthogonal, derivative, integral, limit, series, "
+           "convergence, theorem, proof, for all, there exists, if and only if. We have x squared plus 3 x minus 5 equals 0, f of x, an n by n matrix."),
 }
-# vocabolario ripetuto in OGNI finestra da 30 s (il prompt iniziale vale solo per la prima). Budget:
-# ~110 token (vedi PROMPTS): prima le parole del corso scritte dall'utente nelle impostazioni, poi queste, in ordine di importanza
-HOTWORDS = {
-    "it": ("autovalori autovettori autospazio matrice determinante rango nucleo immagine sottospazio isomorfismo endomorfismo "
-           "diagonalizzabile polinomio caratteristico molteplicità algebrica geometrica base canonica combinazione lineare "
-           "linearmente indipendenti applicazione lineare trasposta inversa ortogonale ortonormale prodotto scalare prodotto vettoriale "
-           "Gram-Schmidt Rouché-Capelli Cramer Binet Laplace Gauss Jordan spazio vettoriale iperpiano retta piano parametrico "
-           "cartesiano coordinate omogenee conica quadrica ellisse iperbole parabola fascio derivata integrale limite serie successione "
-           "convergenza continuità derivabile primitiva Taylor Cauchy Lagrange Rolle Weierstrass Bolzano de l'Hôpital Riemann "
-           "asintoto monotona estremo superiore infinitesimo o piccolo O grande epsilon delta lambda teorema dimostrazione lemma corollario"),
-    "en": ("eigenvalues eigenvectors eigenspace matrix determinant rank kernel image subspace isomorphism diagonalizable characteristic "
-           "polynomial basis linear combination linearly independent linear map transpose inverse orthogonal orthonormal inner product "
-           "Gram-Schmidt Cramer Laplace Gauss Jordan hyperplane conic quadric derivative integral limit series sequence convergence "
-           "continuity Taylor Cauchy Lagrange Rolle Weierstrass Riemann asymptote supremum infinitesimal big O epsilon delta lambda theorem proof lemma"),
-}
-
-
-def hotwords(lang, extra=""):
-    """Parole del corso dell'utente + vocabolario di base, tagliate al limite di Whisper."""
-    words = [w for w in re.split(r"[\s,;]+", (extra or "") + " " + HOTWORDS.get(lang or "it", HOTWORDS["it"])) if w]
-    seen, out = set(), []
-    for w in words:
-        if w.lower() not in seen:
-            seen.add(w.lower()); out.append(w)
-    txt = ""
-    for w in out:                         # ~3,7 caratteri per token: ~110 token, lascia spazio al testo
-        if len(txt) + len(w) + 1 > 400:
-            break
-        txt += " " + w
-    return txt.strip()
 
 
 # errori tipici di Whisper sui termini del corso: (parole sentite) -> parola giusta
@@ -124,10 +100,9 @@ def get_model():
         return _model
 
 
-# passa-alto/basso sulla banda della voce, riduzione leggera del rumore e livellamento aggressivo:
-# le frasi dette piano (o lontano dal microfono) arrivano al modello quasi forti come le altre
-AUDIO_FILTER = ("highpass=f=60,lowpass=f=7800,afftdn=nr=10:nf=-30,"
-                "dynaudnorm=f=150:g=9:m=40:p=0.95:r=0.9,alimiter=limit=0.95")
+# filtro passa-alto e volume uniforme, moderato: un livellamento piu' aggressivo alza anche il rumore
+# e Whisper comincia a "sentire" parole che non ci sono
+AUDIO_FILTER = "highpass=f=70,dynaudnorm=f=250:g=15:p=0.9:m=15"
 
 
 def load_audio(ffmpeg, src):
@@ -146,27 +121,32 @@ def to_units(words):
 
 
 def _opts(lang, vocab="", **kw):
-    o = dict(language=lang, task="transcribe", beam_size=BEAM, best_of=5, patience=1.2,
-             temperature=[0.0, 0.2, 0.4, 0.6, 0.8], word_timestamps=True,
-             # senza contesto della finestra precedente Whisper non "salta" pezzi di frase per inseguire il testo gia' scritto;
-             # il vocabolario del corso resta grazie a hotwords, ripetuto in ogni finestra
-             condition_on_previous_text=False, hotwords=hotwords(lang, vocab),
-             no_speech_threshold=0.85, compression_ratio_threshold=2.4, log_prob_threshold=-1.0,
-             repetition_penalty=1.05, no_repeat_ngram_size=0)
+    """Impostazioni collaudate: contesto della frase precedente attivo (coerenza del testo), niente hotwords
+    (con liste di parole lunghe Whisper inserisce termini a caso), filtri anti-allucinazione di default."""
+    prompt = PROMPTS.get(lang or "it", PROMPTS["it"])
+    if vocab.strip():
+        prompt += " Termini del corso: " + vocab.strip()[:300] + "."
+    o = dict(language=lang, task="transcribe", beam_size=BEAM, best_of=5, patience=1.0,
+             temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0], word_timestamps=True,
+             condition_on_previous_text=True, prompt_reset_on_temperature=0.5, initial_prompt=prompt,
+             no_speech_threshold=0.6, compression_ratio_threshold=2.4, log_prob_threshold=-1.0,
+             hallucination_silence_threshold=2.0)
     o.update(kw)
     return o
 
 
-def _speech_gaps(audio, segs, sr=16000, min_gap=0.8):
-    """Intervalli non coperti dalla trascrizione in cui pero' c'e' voce (energia sopra il rumore di fondo)."""
-    import numpy as np
-    hop = int(sr * 0.03)
-    n = len(audio) // hop
-    if n < 10:
-        return []
-    rms = np.sqrt((audio[: n * hop].reshape(n, hop) ** 2).mean(axis=1) + 1e-12)
-    floor = float(np.percentile(rms, 15))
-    thr = max(floor * 2.5, 0.004)
+def _vad_speech(clip, threshold=0.35):
+    """Secondi di voce rilevati dal VAD (Silero) in un pezzo di audio."""
+    try:
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+        ts = get_speech_timestamps(clip, VadOptions(threshold=threshold, min_speech_duration_ms=250, min_silence_duration_ms=300))
+        return sum(t["end"] - t["start"] for t in ts) / 16000
+    except Exception:
+        return 0.0
+
+
+def _speech_gaps(audio, segs, sr=16000, min_gap=1.5):
+    """Tratti non coperti dalla trascrizione in cui il VAD sente comunque voce per almeno 0,8 s."""
     cover, t = [], 0.0
     for s in sorted(segs, key=lambda x: x["s"]):
         if s["s"] - t >= min_gap:
@@ -177,20 +157,19 @@ def _speech_gaps(audio, segs, sr=16000, min_gap=0.8):
         cover.append((t, total))
     out = []
     for a, b in cover:
-        fr = rms[int(a / 0.03): int(b / 0.03)]
-        if len(fr) and (fr > thr).mean() > 0.12:            # almeno il 12% del tratto ha voce
-            # spezza i buchi lunghi in pezzi da max 25 s (una finestra di Whisper)
-            x = a
-            while x < b - 0.3:
-                out.append((x, min(b, x + 25.0)))
-                x += 25.0
+        x = a
+        while x < b - 0.5:                       # pezzi da max 25 s (una finestra di Whisper)
+            y = min(b, x + 25.0)
+            if _vad_speech(audio[int(x * sr):int(y * sr)]) >= 0.8:
+                out.append((x, y))
+            x = y
     return out
 
 
 def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab=""):
     """Trascrive e chiama on_segment(seg) per ogni frase appena pronta. Restituisce (lingua, modello).
-    Due passate: la prima con il rilevatore di voce (VAD) tarato largo; la seconda ritrascrive, senza VAD e con
-    volume alzato, ogni tratto rimasto scoperto in cui c'e' comunque voce (frasi dette piano, code di frase)."""
+    Due passate: la prima normale; la seconda ritrascrive i tratti rimasti scoperti in cui il VAD sente voce,
+    tenendo solo le frasi di cui il modello e' molto sicuro."""
     import numpy as np
     if not have_whisper():
         raise RuntimeError("faster-whisper non installato: esegui  pip install -U faster-whisper")
@@ -201,15 +180,16 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab="
         model = get_model()
         lang = None if language in (None, "", "auto") else language
         segs, info = model.transcribe(audio, **_opts(
-            lang, vocab, initial_prompt=PROMPTS.get(lang or "it", PROMPTS["it"]), vad_filter=True,
-            # soglia bassa e margini ampi: meglio passare al modello un po' di silenzio che perdere una frase sussurrata
-            vad_parameters={"threshold": 0.2, "neg_threshold": 0.1, "min_speech_duration_ms": 0,
-                            "min_silence_duration_ms": 1500, "speech_pad_ms": 800}))
+            lang, vocab, vad_filter=True,
+            # un po' piu' permissivo del default (0.5) per non scartare le frasi dette piano, ma senza esagerare
+            vad_parameters={"threshold": 0.35, "min_speech_duration_ms": 200, "min_silence_duration_ms": 1000, "speech_pad_ms": 400}))
         lang = lang or info.language
         n, done = 0, []
         for s in segs:
             if not alive():
                 raise RuntimeError("Interrotta: video eliminato")
+            if JUNK.search(s.text or ""):
+                continue
             words = s.words or []
             units = to_units(words) if words else [{"k": "w", "x": s.text.strip(), "s": round(s.start, 3), "e": round(s.end, 3)}]
             if units:
@@ -229,15 +209,16 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab="
             peak = float(np.abs(clip).max()) if len(clip) else 0
             if peak < 1e-4:
                 continue
-            clip = np.clip(clip * min(8.0, 0.9 / peak), -1, 1).astype(np.float32)
+            clip = np.clip(clip * min(3.0, 0.9 / peak), -1, 1).astype(np.float32)
             off = i0 / 16000
-            sub, _ = model.transcribe(clip, **_opts(lang, vocab, vad_filter=False, temperature=[0.0, 0.2, 0.4], no_speech_threshold=0.9))
+            sub, _ = model.transcribe(clip, **_opts(lang, vocab, vad_filter=True, condition_on_previous_text=False,
+                                                    vad_parameters={"threshold": 0.3, "speech_pad_ms": 300}, temperature=[0.0, 0.2]))
             for s in sub:
-                if JUNK.search(s.text or "") or s.avg_logprob < -1.3:
+                # solo frasi di cui il modello e' davvero sicuro: meglio un pezzo in meno che parole inventate
+                if JUNK.search(s.text or "") or s.avg_logprob < -0.7 or s.no_speech_prob > 0.4 or s.compression_ratio > 2.2:
                     continue
-                # tieni solo le parole sicure e che cadono davvero nel buco (non doppioni delle frasi gia' presenti)
-                ws = [w for w in (s.words or []) if w.probability >= 0.25 and a - 0.15 <= w.start + off and w.end + off <= b + 0.15]
-                if not ws:
+                ws = [w for w in (s.words or []) if w.probability >= 0.6 and a - 0.15 <= w.start + off and w.end + off <= b + 0.15]
+                if len(ws) < 2:
                     continue
                 for w in ws:
                     w.start, w.end = w.start + off, w.end + off
