@@ -41,8 +41,15 @@ def clean_partials():
             if d.is_dir() and VID_RE.match(d.name) and not (d / "meta.json").exists():
                 shutil.rmtree(d, ignore_errors=True)
             elif d.is_dir() and VID_RE.match(d.name):  # file temporanei di lavori interrotti
-                for f in list(d.glob("*.part.*")) + list(d.glob("graph*.txt")):
+                for f in list(d.glob("*.part.*")) + list(d.glob("graph*.txt")) + list(d.glob("tmp_audio.*")):
                     f.unlink(missing_ok=True)
+                try:  # trascrizione rimasta a meta': si puo' riprendere dal pannello
+                    m = load_meta(lib, d.name)
+                    if (m.get("transcript") or {}).get("status") == "running":
+                        m["transcript"]["status"] = "interrupted"
+                        save_meta(lib, m)
+                except Exception:
+                    pass
 
 
 def dir_size(root):
@@ -125,6 +132,7 @@ JOBS, LOCK = {}, threading.Lock()
 DL_SEM = threading.Semaphore(int(os.environ.get("STUDYCUT_PARALLEL", "3")))
 CPU_SEM = threading.Semaphore(2)      # esportazioni e conversioni
 AN_SEM = threading.Semaphore(3)       # ricerca delle pause (veloce)
+TR_SEM = threading.Semaphore(1)       # trascrizioni: pesanti, una alla volta
 PREP_SEM = threading.Semaphore(2)     # versioni senza pause in streaming: non aspettano le esportazioni
 
 
@@ -179,6 +187,24 @@ def save_meta(lib, m):
     p = mpath(lib, m["id"])
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(m, ensure_ascii=False, indent=1), "utf-8")
+    os.replace(tmp, p)
+
+
+def clean_name(s, n=120):
+    return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f]", " ", str(s or ""))).strip()[:n]
+
+
+def load_folders(lib):
+    try:
+        return json.loads((lib / "folders.json").read_text("utf-8"))
+    except Exception:
+        return []
+
+
+def save_folders(lib, fl):
+    p = lib / "folders.json"
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(fl, ensure_ascii=False, indent=1), "utf-8")
     os.replace(tmp, p)
 
 
@@ -432,7 +458,117 @@ def job_download(jid, sp, url, quality):
         msg = re.sub(r"\x1b\[[0-9;]*m", "", str(e)).replace("ERROR: ", "")
         raise RuntimeError(msg)
     if auto:  # cerca subito le pause (e poi prepara la versione senza pause), anche a pagina chiusa
-        start_analyze(sp, vid, title=m["title"])
+        after_import(sp, vid, m["title"])
+
+
+# ---------------------------------------------------------------- preferenze e trascrizione
+PREF_DEFAULT = {"autotranscribe": True, "language": "it"}
+
+
+def load_prefs(lib):
+    try:
+        p = json.loads((lib / "prefs.json").read_text("utf-8"))
+    except Exception:
+        p = {}
+    return {**PREF_DEFAULT, **{k: v for k, v in p.items() if k in PREF_DEFAULT}}
+
+
+def save_prefs(lib, p):
+    f = lib / "prefs.json"
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(json.dumps(p, ensure_ascii=False), "utf-8")
+    os.replace(tmp, f)
+
+
+def tr_path(lib, vid):
+    return lib / vid / "transcript.json"
+
+
+def load_tr(lib, vid):
+    try:
+        return json.loads(tr_path(lib, vid).read_text("utf-8"))
+    except Exception:
+        return None
+
+
+def save_tr(lib, vid, t):
+    p = tr_path(lib, vid)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(t, ensure_ascii=False), "utf-8")
+    os.replace(tmp, p)
+
+
+def start_transcribe(sp, vid, title=None, force=False):
+    """Mette in coda la trascrizione (una alla volta). Senza force non ricomincia se esiste gia'."""
+    import transcribe
+    m = load_meta(sp.lib, vid)
+    st = (m.get("transcript") or {}).get("status")
+    if not force and st in ("running", "queued", "done"):
+        return None
+    if m.get("audio") is None and False:
+        return None
+    m["transcript"] = {"status": "queued", "at": time.time()}
+    save_meta(sp.lib, m)
+    jid = new_job("transcribe", vid, owner=sp.uid, title=title or m["title"])
+    run_job(jid, job_transcribe, sp, vid, sem=TR_SEM)
+    return jid
+
+
+def job_transcribe(jid, sp, vid):
+    import transcribe
+    lib = sp.lib
+    m = load_meta(lib, vid)
+    prefs = load_prefs(lib)
+    src, dur = lib / vid / m["file"], m["duration"] or 1
+    m["transcript"] = {"status": "running", "at": time.time()}
+    save_meta(lib, m)
+    t = {"language": None, "model": transcribe.MODEL, "segments": []}
+    save_tr(lib, vid, t)
+
+    def on_seg(seg):
+        t["segments"].append(seg)
+        if len(t["segments"]) % 3 == 1:
+            save_tr(lib, vid, t)
+
+    def on_prog(p, msg):
+        upd(jid, progress=p, message=msg)
+
+    try:
+        lang, model = transcribe.run(FFMPEG, src, prefs["language"], on_seg, on_prog, lambda: mpath(lib, vid).exists(), dur)
+        t["language"], t["model"] = lang, model
+        save_tr(lib, vid, t)
+        m = load_meta(lib, vid)
+        m["transcript"] = {"status": "done", "language": lang, "model": model, "segments": len(t["segments"]), "at": time.time()}
+        save_meta(lib, m)
+        upd(jid, result={"video": vid}, message="Trascrizione pronta")
+    except Exception as e:
+        if mpath(lib, vid).exists():
+            save_tr(lib, vid, t)
+            m = load_meta(lib, vid)
+            m["transcript"] = {"status": "error", "msg": str(e)[-300:], "at": time.time(), "segments": len(t["segments"])}
+            save_meta(lib, m)
+        raise
+
+
+def after_import(sp, vid, title):
+    """Appena un video e' in libreria: cerca le pause e (se attivo nelle impostazioni) lo trascrive."""
+    start_analyze(sp, vid, title=title)
+    try:
+        if load_prefs(sp.lib)["autotranscribe"] and FFMPEG:
+            start_transcribe(sp, vid, title)
+    except Exception:
+        pass
+
+
+def merge_ranges(rs):
+    rs = sorted([float(a), float(b)] for a, b in rs if b > a)
+    out = []
+    for a, b in rs:
+        if out and a <= out[-1][1] + 1e-6:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return out
 
 
 # ---------------------------------------------------------------- silences
@@ -821,7 +957,7 @@ def wait_cut(jid, sp, vid, key):
 MAX_COPY_FPS = 91  # fino a 3x di un video a 30 fps senza ricodificare; oltre si ricodifica
 
 
-def job_export(jid, sp, vid, speed, remove):
+def job_export(jid, sp, vid, speed, remove, cuts=False):
     lib = sp.lib
     m = load_meta(lib, vid)
     if remove and not m.get("analysis"):
@@ -832,12 +968,16 @@ def job_export(jid, sp, vid, speed, remove):
     orig = lib / vid / m["file"]
     dur = m["duration"] or probe_duration(orig)
     is_audio = m.get("audio", False)
-    tag = f"{speed:g}x".replace(".", ",") + ("_senza-silenzi" if remove else "")
+    tag = f"{speed:g}x".replace(".", ",") + ("_senza-silenzi" if remove else "") + ("_tagli" if cuts else "")
     name = f"export_{tag}.{'m4a' if is_audio else 'mp4'}"
     out = lib / vid / name
     tmp = lib / vid / f"{name}.part{out.suffix}"
     keep, src = None, orig
-    if remove and cut_ready(m) and cut_path(lib, vid, m["cut"]).exists():
+    if cuts:  # i tagli scelti a mano si sommano ai silenzi: si parte sempre dall'originale
+        skips = merge_ranges(((m["analysis"] or {}).get("skips", []) if remove else []) + [[c["s"], c["e"]] for c in m.get("cuts") or []])
+        keep = keep_segments(skips, dur)
+        base = sum(b - a for a, b in keep)
+    elif remove and cut_ready(m) and cut_path(lib, vid, m["cut"]).exists():
         src, base = cut_path(lib, vid, m["cut"]), m["cut"]["duration"]  # versione senza pause gia' pronta
     elif remove:
         keep = keep_segments(m["analysis"]["skips"], dur)
@@ -888,7 +1028,7 @@ def job_export(jid, sp, vid, speed, remove):
             gfile.unlink(missing_ok=True)
     m = load_meta(lib, vid)
     m["exports"] = [e for e in m.get("exports", []) if e["file"] != name]
-    m["exports"].insert(0, {"file": name, "speed": speed, "remove": remove,
+    m["exports"].insert(0, {"file": name, "speed": speed, "remove": remove, "cuts": cuts,
                             "duration": out_dur, "size": out.stat().st_size,
                             "created": time.time()})
     save_meta(lib, m)
@@ -1024,13 +1164,24 @@ class H(BaseHTTPRequestHandler):
             return self.send_file(STATIC / "index.html")
         if len(parts) == 1 and re.match(r"^[\w-]+\.(js|css|svg|png|woff2)$", parts[0]) and (STATIC / parts[0]).is_file():
             return self.send_file(STATIC / parts[0])
+        if 2 <= len(parts) <= 4 and parts[0] == "vendor" and all(re.match(r"^[\w.-]+$", x) and ".." not in x for x in parts):
+            p = STATIC.joinpath(*parts)
+            if p.is_file():
+                return self.send_file(p)
+            return self.err("Non trovato", 404)
         if parts == ["api", "status"]:
+            try:
+                import transcribe
+                tr_ok, tr_model = transcribe.have_whisper(), transcribe.MODEL
+            except Exception:
+                tr_ok, tr_model = False, None
             try:
                 import yt_dlp
                 ver = yt_dlp.version.__version__
             except Exception:
                 ver = None
-            return self.send_json({"ffmpeg": bool(FFMPEG), "ytdlp": ver, "multiuser": bool(USERS_ROOT)})
+            return self.send_json({"ffmpeg": bool(FFMPEG), "ytdlp": ver, "multiuser": bool(USERS_ROOT),
+                                   "whisper": tr_ok, "model": tr_model})
         # lavori di tutti: solo dall'interno del container (controllo prima del riavvio per aggiornare yt-dlp)
         if parts == ["api", "jobs"] and USERS_ROOT and not self.headers.get("X-User-Id") and self.client_address[0] == "127.0.0.1":
             return self.send_json(jobs_snapshot())
@@ -1059,6 +1210,42 @@ class H(BaseHTTPRequestHandler):
                 return self.err(str(e), 422)
         if parts == ["api", "library"]:
             return self.send_json(library(lib))
+        if parts == ["api", "folders"]:
+            return self.send_json(load_folders(lib))
+        if parts == ["api", "prefs"]:
+            return self.send_json(load_prefs(lib))
+        if parts[:2] == ["api", "transcript"]:
+            q = parse_qs(u.query)
+            vid = (q.get("id") or [""])[0]
+            if not VID_RE.match(vid) or not mpath(lib, vid).exists():
+                return self.err("Video non trovato", 404)
+            m = load_meta(lib, vid)
+            t = load_tr(lib, vid) or {"language": None, "model": None, "segments": []}
+            if parts == ["api", "transcript"]:
+                start = max(0, int((q.get("from") or ["0"])[0] or 0))
+                return self.send_json({"status": (m.get("transcript") or {}).get("status", "none"), "msg": (m.get("transcript") or {}).get("msg"),
+                                       "language": t.get("language"), "model": t.get("model"), "total": len(t["segments"]),
+                                       "segments": t["segments"][start:]})
+            if parts == ["api", "transcript", "export"]:
+                import transcribe
+                fmt = (q.get("fmt") or ["txt"])[0]
+                base = re.sub(r'[\\/:*?"<>|]+', "_", m["title"])[:100] or "trascrizione"
+                stamps = (q.get("stamps") or ["1"])[0] != "0"
+                if fmt == "tex":
+                    body, ext, ct = transcribe.export_tex(m["title"], t["segments"]), "tex", "application/x-tex"
+                elif fmt == "json":
+                    body, ext, ct = json.dumps(t, ensure_ascii=False), "json", "application/json"
+                else:
+                    body, ext, ct = transcribe.export_txt(m["title"], t["segments"], stamps), "txt", "text/plain"
+                b = body.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", ct + "; charset=utf-8")
+                self.send_header("Content-Length", str(len(b)))
+                self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(base + ' - trascrizione.' + ext)}")
+                self.end_headers()
+                self.wfile.write(b)
+                return
+            return self.err("Non trovato", 404)
         if len(parts) == 3 and parts[:2] == ["api", "video"] and VID_RE.match(parts[2]):
             if not mpath(lib, parts[2]).exists():
                 return self.err("Video non trovato", 404)
@@ -1145,9 +1332,136 @@ class H(BaseHTTPRequestHandler):
                 run_job(jid, job_download, sp, u, q, sem=DL_SEM)
                 jobs.append(jid)
             return self.send_json({"jobs": jobs})
+        if parts[:2] == ["api", "folders"]:
+            return self.folders_post(sp, parts[2:], data)
+        if parts == ["api", "prefs"]:
+            p = load_prefs(lib)
+            if "autotranscribe" in data:
+                p["autotranscribe"] = bool(data["autotranscribe"])
+            if data.get("language") in ("it", "en", "auto"):
+                p["language"] = data["language"]
+            save_prefs(lib, p)
+            return self.send_json(p)
+        if parts == ["api", "rename-many"]:  # "Analisi 1, 2, 3..." sui video scelti, nell'ordine dato
+            ids = [i for i in (data.get("ids") or []) if isinstance(i, str) and VID_RE.match(i) and mpath(lib, i).exists()]
+            base = clean_name(data.get("base"))
+            if not ids or not base:
+                return self.err("Scegli dei video e un nome")
+            start = max(1, min(9999, int(data.get("start") or 1)))
+            for n, i in enumerate(ids):
+                m = load_meta(lib, i)
+                m["title"] = f"{base} {start + n}"
+                save_meta(lib, m)
+            return self.send_json({"ok": True, "count": len(ids)})
+        if parts == ["api", "move"]:
+            ids = [i for i in (data.get("ids") or []) if isinstance(i, str) and VID_RE.match(i) and mpath(lib, i).exists()]
+            fid = data.get("folder") or None
+            if fid and fid not in {f["id"] for f in load_folders(lib)}:
+                return self.err("Cartella non trovata", 404)
+            for i in ids:
+                m = load_meta(lib, i)
+                m["folder"] = fid
+                save_meta(lib, m)
+            return self.send_json({"ok": True})
         vid = data.get("id", "")
         if not VID_RE.match(vid) or not mpath(lib, vid).exists():
             return self.err("Video non trovato", 404)
+        if parts == ["api", "transcribe"]:
+            try:
+                import transcribe
+                if not transcribe.have_whisper():
+                    return self.err("Trascrizione non disponibile: manca faster-whisper (pip install faster-whisper)", 501)
+            except ImportError:
+                return self.err("Trascrizione non disponibile", 501)
+            jid = start_transcribe(sp, vid, force=bool(data.get("force")))
+            return self.send_json({"job": jid})
+        if parts == ["api", "transcript", "edit"]:
+            import transcribe
+            t = load_tr(lib, vid)
+            m = load_meta(lib, vid)
+            if not t or (m.get("transcript") or {}).get("status") == "running":
+                return self.err("Trascrizione non modificabile ora")
+            i = int(data.get("seg", -1))
+            if not 0 <= i < len(t["segments"]):
+                return self.err("Frase non trovata", 404)
+            g = t["segments"][i]
+            units = transcribe.parse_text(str(data.get("text") or "")[:4000], g["s"], g["e"])
+            if not units:
+                t["segments"].pop(i)
+                for k, x in enumerate(t["segments"]):
+                    x["id"] = k
+            else:
+                g["u"] = units
+            save_tr(lib, vid, t)
+            return self.send_json({"ok": True, "total": len(t["segments"])})
+        if parts == ["api", "markers"]:  # segnaposti: {t, label, color}
+            m = load_meta(lib, vid)
+            mk = m.get("markers") or []
+            if len(mk) >= 500:
+                return self.err("Troppi segnaposti")
+            n = {"id": uuid.uuid4().hex[:6], "t": round(max(0.0, float(data.get("t", 0))), 2), "label": clean_name(data.get("label"), 80),
+                 "color": str(data.get("color") or "")[:12] if re.match(r"^#?\w{0,11}$", str(data.get("color") or "")) else "", "created": time.time()}
+            mk.append(n)
+            m["markers"] = sorted(mk, key=lambda x: x["t"])
+            save_meta(lib, m)
+            return self.send_json({"marker": n, "markers": m["markers"]})
+        if parts == ["api", "markers", "update"]:
+            m = load_meta(lib, vid)
+            for x in m.get("markers") or []:
+                if x["id"] == data.get("mid"):
+                    if "label" in data:
+                        x["label"] = clean_name(data["label"], 80)
+                    if "t" in data:
+                        x["t"] = round(max(0.0, float(data["t"])), 2)
+                    if "color" in data and re.match(r"^#?\w{0,11}$", str(data["color"])):
+                        x["color"] = str(data["color"])
+            m["markers"] = sorted(m.get("markers") or [], key=lambda x: x["t"])
+            save_meta(lib, m)
+            return self.send_json({"markers": m["markers"]})
+        if parts == ["api", "markers", "delete"]:
+            m = load_meta(lib, vid)
+            m["markers"] = [x for x in m.get("markers") or [] if x["id"] != data.get("mid")]
+            save_meta(lib, m)
+            return self.send_json({"markers": m["markers"]})
+        if parts == ["api", "cuts"]:  # tagli: parti che si saltano come i silenzi, ma scelte a mano
+            m = load_meta(lib, vid)
+            dur = m["duration"] or 0
+            a, b = round(max(0.0, float(data.get("s", 0))), 2), round(min(float(data.get("e", 0)), dur), 2)
+            if b - a < 0.3:
+                return self.err("Il taglio deve durare almeno mezzo secondo")
+            cuts = m.get("cuts") or []
+            if len(cuts) >= 300:
+                return self.err("Troppi tagli")
+            cuts.append({"id": uuid.uuid4().hex[:6], "s": a, "e": b, "label": clean_name(data.get("label"), 80), "created": time.time()})
+            m["cuts"] = sorted(cuts, key=lambda x: x["s"])
+            save_meta(lib, m)
+            return self.send_json({"cuts": m["cuts"]})
+        if parts == ["api", "cuts", "update"]:
+            m = load_meta(lib, vid)
+            dur = m["duration"] or 0
+            for x in m.get("cuts") or []:
+                if x["id"] == data.get("cid"):
+                    s0, e0 = float(data.get("s", x["s"])), float(data.get("e", x["e"]))
+                    if e0 - s0 >= 0.3:
+                        x["s"], x["e"] = round(max(0.0, s0), 2), round(min(e0, dur), 2)
+                    if "label" in data:
+                        x["label"] = clean_name(data["label"], 80)
+            m["cuts"] = sorted(m.get("cuts") or [], key=lambda x: x["s"])
+            save_meta(lib, m)
+            return self.send_json({"cuts": m["cuts"]})
+        if parts == ["api", "cuts", "delete"]:
+            m = load_meta(lib, vid)
+            m["cuts"] = [x for x in m.get("cuts") or [] if x["id"] != data.get("cid")]
+            save_meta(lib, m)
+            return self.send_json({"cuts": m["cuts"]})
+        if parts == ["api", "rename"]:
+            name = clean_name(data.get("title"))
+            if not name:
+                return self.err("Il nome non puo' essere vuoto")
+            m = load_meta(lib, vid)
+            m["title"] = name
+            save_meta(lib, m)
+            return self.send_json(m)
         if parts == ["api", "settings"]:  # impostazioni del singolo video (velocita', salto delle pause)
             m = load_meta(lib, vid)
             st = m.get("settings") or {}
@@ -1155,6 +1469,8 @@ class H(BaseHTTPRequestHandler):
                 st["speed"] = round(max(0.5, min(3.0, float(data["speed"]))), 2)
             if "skip" in data:
                 st["skip"] = bool(data["skip"])
+            if "skipCuts" in data:
+                st["skipCuts"] = bool(data["skipCuts"])
             m["settings"] = st
             save_meta(lib, m)
             return self.send_json({"ok": True, "settings": st})
@@ -1172,15 +1488,50 @@ class H(BaseHTTPRequestHandler):
         if parts == ["api", "export"]:
             speed = max(0.25, min(4.0, float(data.get("speed", 1))))
             remove = bool(data.get("remove", True))
-            if not remove and abs(speed - 1) < 1e-3:
+            cuts = bool(data.get("cuts", False)) and bool(load_meta(lib, vid).get("cuts"))
+            if not remove and not cuts and abs(speed - 1) < 1e-3:
                 return self.err("Niente da esportare: scegli una velocita' o rimuovi i silenzi")
             m = load_meta(lib, vid)
             f = sp.free()
             if f is not None and f < (20 << 20):
                 return self.err(f"Spazio esaurito: hai usato tutti i {gb(sp.quota)}. Elimina qualche video o esportazione.", 413)
             jid = new_job("export", vid, owner=sp.uid, title=m["title"])
-            run_job(jid, job_export, sp, vid, round(speed, 3), remove, sem=CPU_SEM)
+            run_job(jid, job_export, sp, vid, round(speed, 3), remove, cuts, sem=CPU_SEM)
             return self.send_json({"job": jid})
+        self.err("Non trovato", 404)
+
+    def folders_post(self, sp, rest, data):
+        lib = sp.lib
+        fl = load_folders(lib)
+        if not rest:  # crea
+            name = clean_name(data.get("name"))
+            if not name:
+                return self.err("Dai un nome alla cartella")
+            if len(fl) >= 200:
+                return self.err("Troppe cartelle")
+            f = {"id": uuid.uuid4().hex[:8], "name": name, "created": time.time()}
+            fl.append(f)
+            save_folders(lib, fl)
+            return self.send_json(f)
+        f = next((x for x in fl if x["id"] == data.get("id")), None)
+        if not f:
+            return self.err("Cartella non trovata", 404)
+        if rest == ["rename"]:
+            name = clean_name(data.get("name"))
+            if not name:
+                return self.err("Il nome non puo' essere vuoto")
+            f["name"] = name
+            save_folders(lib, fl)
+            return self.send_json(f)
+        if rest == ["delete"]:  # i video tornano nella libreria, non si cancellano
+            for d in lib.iterdir():
+                if d.is_dir() and VID_RE.match(d.name) and mpath(lib, d.name).exists():
+                    m = load_meta(lib, d.name)
+                    if m.get("folder") == f["id"]:
+                        m["folder"] = None
+                        save_meta(lib, m)
+            save_folders(lib, [x for x in fl if x is not f])
+            return self.send_json({"ok": True})
         self.err("Non trovato", 404)
 
     def import_file(self, sp):
@@ -1210,7 +1561,7 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:
             shutil.rmtree(d, ignore_errors=True)
             return self.err(str(e) or "Importazione non riuscita", 500)
-        start_analyze(sp, vid, title=m["title"])
+        after_import(sp, vid, m["title"])
         self.send_json(m)
 
     # ---- upload a pezzi: POST api/upload {name,size} -> PUT api/upload/<id>?offset=N -> POST api/upload/<id>/done
@@ -1269,7 +1620,7 @@ class H(BaseHTTPRequestHandler):
                 try:
                     m = work(jid)
                     upd(jid, status="done", progress=1.0, ended=time.time())
-                    start_analyze(sp, vid, title=m["title"])
+                    after_import(sp, vid, m["title"])
                 except Exception as e:  # noqa
                     shutil.rmtree(lib / vid, ignore_errors=True)
                     upd(jid, status="error", message=str(e).strip()[-400:] or "Errore", ended=time.time())

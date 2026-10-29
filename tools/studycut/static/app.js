@@ -2,7 +2,7 @@
 const $ = s => document.querySelector(s);
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 // velocita' e salto delle pause sono del singolo video (salvati nel video, vedi saveSettings)
-const state = { lib: [], cur: null, speed: 1, skip: true,
+const state = { lib: [], cur: null, speed: 1, skip: true, skipCuts: true, whisper: true,
   links: [], jobs: [], seen: new Set(), vol: localStorage.vol ? +localStorage.vol : 1, muted: localStorage.muted === '1' };
 const video = $('#video'), pv = $('#pv'), app = $('#app'), vwrap = $('#vwrap'), pbox = $('#pbox');
 const mq = matchMedia('(max-width:860px),(pointer:coarse) and (max-height:520px)'), isMob = () => mq.matches;
@@ -341,8 +341,127 @@ $('#quality').addEventListener('change', () => { if (look.mode === 'probe' && IN
 $('#quality').value = localStorage.quality || '720';
 $('#quality').onchange = e => { localStorage.quality = e.target.value; };
 
+/* ---------- finestra flottante (cartelle: "In corso" e cartelle della libreria) + dialoghi ---------- */
+const fw = { mode: null, id: null };
+const fwin = $('#fwin');
+function placeFw(anchor) {
+  if (isMob() || !anchor) { fwin.style.removeProperty('--ox'); fwin.style.removeProperty('--oy'); return; }
+  const r = anchor.getBoundingClientRect(), f = fwin.querySelector('.fwin-in').getBoundingClientRect();
+  fwin.style.setProperty('--ox', `${r.left + r.width / 2 - f.left}px`); fwin.style.setProperty('--oy', `${r.top + r.height / 2 - f.top}px`);
+}
+function openFw(mode, id, anchor) {
+  fw.mode = mode; fw.id = id; fwin.classList.add('show'); $('#fwGrid').scrollTop = 0;
+  $('#fwGrid').innerHTML = ''; jobEls.clear(); libKey = '';
+  renderFw(); placeFw(anchor);
+}
+function closeFw() { if (!fw.mode) return; fw.mode = null; fw.id = null; fwin.classList.remove('show'); setTimeout(() => { if (!fw.mode) $('#fwGrid').innerHTML = ''; jobEls.clear(); }, 400); }
+function renderFw() {
+  if (!fw.mode) return;
+  const folder = fw.mode === 'folder' ? state.folders.find(f => f.id === fw.id) : null;
+  if (fw.mode === 'folder' && !folder) return closeFw();
+  const vids = folder ? state.lib.filter(m => !m.archived && m.folder === folder.id) : [];
+  ['#fwRen', '#fwEdit', '#fwDel'].forEach(s => $(s).hidden = !folder);
+  $('#fwT').textContent = folder ? folder.name : 'In corso';
+  $('#fwS').textContent = folder ? `${vids.length} video` : '';
+  if (!folder) return;
+  const key = JSON.stringify(vids.map(m => [m.id, m.title, m.thumb, m.duration]));
+  const g = $('#fwGrid'); if (g._k === key) return; g._k = key;
+  g.innerHTML = vids.length ? vids.map((m, i) => `<div class="vcard in" style="--i:${Math.min(i, 12)}" data-id="${m.id}">
+    <div class="thumb" style="${m.thumb ? `background-image:url('media/${m.id}/${m.thumb}')` : ''}">${m.audio ? `<span class="badge">${ICON.audio}</span>` : ''}<em>${fmt(m.duration)}</em></div>
+    <div class="t">${esc(m.title)}</div>
+    <button class="ib sm vc-x" data-out="${m.id}" title="Togli dalla cartella">${ICON.x}</button></div>`).join('')
+    : '<div class="lib-empty">Cartella vuota. Trascina qui i video dalla libreria oppure usa Seleziona → Sposta in…</div>';
+}
+$('#fwClose').onclick = closeFw;
+document.addEventListener('pointerdown', e => {
+  if (fw.mode && !e.target.closest('#fwin,#actFold,.item.folder,#dlg,.toast')) closeFw();
+}, true);
+$('#actFold').onclick = () => fw.mode === 'jobs' ? closeFw() : openFw('jobs', null, $('#actFold'));
+$('#fwGrid').addEventListener('click', async e => {
+  const out = e.target.closest('[data-out]');
+  if (out) { await post('api/move', { ids: [out.dataset.out], folder: null }); return refreshLib(); }
+  const c = e.target.closest('.vcard'); if (!c) return;
+  if (isMob()) { closeFw(); setSide('l', false); }
+  open(c.dataset.id);
+});
+const refreshLib = () => { libKey = ''; return loadLib(); };
+// dialoghi
+let dlgRes = null;
+function dialog({ title, text = '', body = '', ok = 'OK', input = null, hideOk = false }) {
+  return new Promise(res => {
+    const d = $('#dlg'); $('#dlgT').textContent = title; $('#dlgP').textContent = text; $('#dlgP').hidden = !text;
+    $('#dlgB').innerHTML = input ? (input.area ? `<textarea id="dlgI" class="dlg-i area" maxlength="4000" rows="5" spellcheck="true">${esc(input.value || '')}</textarea>` : `<input id="dlgI" class="dlg-i" maxlength="120" spellcheck="false" autocomplete="off" placeholder="${esc(input.placeholder || '')}" value="${esc(input.value || '')}">`) + (input.extra || '') : body;
+    $('#dlgOk').textContent = ok; $('#dlgOk').hidden = hideOk; d.classList.add('show');
+    const done = v => { d.classList.remove('show'); dlgRes = null; res(v); };
+    dlgRes = done;
+    $('#dlgF').onsubmit = e => { e.preventDefault(); done(input ? $('#dlgI').value.trim() : true); };
+    if (input && input.area) $('#dlgI').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#dlgF').requestSubmit(); };
+    $('#dlgNo').onclick = () => done(null);
+    d.onclick = e => { if (e.target === d) done(null); };
+    $('#dlgB').onclick = e => { const b = e.target.closest('[data-pick]'); if (b) done(b.dataset.pick); };
+    if (input) setTimeout(() => { const i = $('#dlgI'); i.focus(); i.select(); }, 60);
+  });
+}
+addEventListener('keydown', e => { if (e.key === 'Escape' && dlgRes) { e.stopPropagation(); dlgRes(null); } }, true);
+async function renameSeries(ids) {
+  if (!ids.length) return;
+  const v = await dialog({ title: 'Rinomina in serie', text: `${ids.length} video, nell'ordine in cui sono mostrati. Es. “Analisi” → Analisi 1, Analisi 2, Analisi 3…`,
+    input: { value: 'Analisi', placeholder: 'Nome', extra: '<label class="dlg-l">Parti dal numero <input id="dlgS" class="dlg-i s" type="number" min="1" value="1"></label>' }, ok: 'Rinomina' });
+  if (!v) return; const start = +($('#dlgS') && $('#dlgS').value) || 1;
+  await post('api/rename-many', { ids, base: v, start }); toast('Rinominati', `${v} ${start} – ${v} ${start + ids.length - 1}`);
+  await refreshLib(); if (state.cur && ids.includes(state.cur.id)) open(state.cur.id);
+}
+async function newFolder(ids = []) {
+  const v = await dialog({ title: 'Nuova cartella', input: { placeholder: 'Nome della cartella' }, ok: 'Crea' }); if (!v) return null;
+  const f = await post('api/folders', { name: v });
+  if (ids.length) await post('api/move', { ids, folder: f.id });
+  await refreshLib(); return f;
+}
+async function moveTo(ids) {
+  if (!ids.length) return;
+  const opts = state.folders.map(f => `<button type="button" class="dlg-o" data-pick="${f.id}"><svg viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>${esc(f.name)}</button>`).join('');
+  const r = await dialog({ title: 'Sposta in…', body: `<div class="dlg-l2">${opts}<button type="button" class="dlg-o" data-pick="__new">+ Nuova cartella…</button>${state.folders.length ? '<button type="button" class="dlg-o" data-pick="__root">Fuori dalle cartelle</button>' : ''}</div>`, hideOk: true });
+  if (!r) return;
+  if (r === '__new') { await newFolder(ids); } else { await post('api/move', { ids, folder: r === '__root' ? null : r }); await refreshLib(); }
+  setSelecting(false);
+}
+$('#newFolder').onclick = () => newFolder();
+$('#fwEdit').onclick = async () => {
+  const f = state.folders.find(x => x.id === fw.id); if (!f) return;
+  const v = await dialog({ title: 'Rinomina cartella', input: { value: f.name }, ok: 'Salva' }); if (!v) return;
+  await post('api/folders/rename', { id: f.id, name: v }); refreshLib();
+};
+$('#fwDel').onclick = async () => {
+  const f = state.folders.find(x => x.id === fw.id); if (!f) return;
+  if (!await dialog({ title: `Eliminare la cartella “${f.name}”?`, text: 'I video non vengono cancellati: tornano nella libreria.', ok: 'Elimina cartella' })) return;
+  await post('api/folders/delete', { id: f.id }); closeFw(); refreshLib();
+};
+$('#fwRen').onclick = () => renameSeries(state.lib.filter(m => !m.archived && m.folder === fw.id).map(m => m.id));
+// selezione multipla nella libreria
+state.sel = new Set(); state.folders = [];
+function setSelecting(on) {
+  state.selecting = on; if (!on) state.sel.clear();
+  $('#left').classList.toggle('selecting', on); $('#selMode').classList.toggle('on', on); updSel(); libKey = ''; loadLib();
+}
+function updSel() {
+  const n = state.sel.size; $('#selN').textContent = n === 1 ? '1 scelto' : `${n} scelti`;
+  $('#selBar').classList.toggle('show', !!state.selecting);
+  $('#selRen').disabled = $('#selMove').disabled = !n;
+  document.querySelectorAll('#lib .item[data-id]').forEach(it => it.classList.toggle('sel', state.sel.has(it.dataset.id)));
+}
+$('#selMode').onclick = () => setSelecting(!state.selecting);
+$('#selX').onclick = () => setSelecting(false);
+const selIds = () => [...document.querySelectorAll('#lib .item[data-id]')].map(x => x.dataset.id).filter(id => state.sel.has(id));
+$('#selRen').onclick = () => renameSeries(selIds());
+$('#selMove').onclick = () => moveTo(selIds());
+// rinomina di un singolo video (doppio clic sul titolo in libreria, o dal titolo sotto il player)
+async function renameOne(id, cur) {
+  const v = await dialog({ title: 'Rinomina', input: { value: cur }, ok: 'Salva' }); if (!v || v === cur) return;
+  await post('api/rename', { id, title: v }); await refreshLib(); if (state.cur && state.cur.id === id) open(id);
+}
+
 /* ---------- jobs ---------- */
-const KIND = { download: 'Download', upload: 'Caricamento', analyze: 'Ricerca delle pause', prepare: 'Versione senza pause', export: 'Esportazione' };
+const KIND = { transcribe: 'Trascrizione', download: 'Download', upload: 'Caricamento', analyze: 'Ricerca delle pause', prepare: 'Versione senza pause', export: 'Esportazione' };
 async function pollJobs() {
   try { state.jobs = await api('api/jobs'); } catch { return; }
   for (const j of state.jobs) {
@@ -353,6 +472,7 @@ async function pollJobs() {
     const r = j.result || {};
     if (j.kind === 'download' || j.kind === 'upload') { await loadLib(); if (!state.cur) await open(r.video); }
     if (j.kind === 'analyze' || j.kind === 'prepare') { if (state.cur && state.cur.id === r.video) await open(r.video); else loadLib(); }
+    if (j.kind === 'transcribe') { if (state.cur && state.cur.id === r.video) trLoad(true); loadLib(); }
     if (j.kind === 'export') { toast('Esportazione pronta', j.title || ''); if (state.cur && state.cur.id === r.video) await open(r.video); }
   }
   renderJobs();
@@ -366,32 +486,52 @@ function renderJobsHeader() {
   if (active.length) $('#actN').textContent = isMob() ? String(active.length) : active.length === 1 ? '1 in corso' : `${active.length} in corso`;
   $('#actCount').textContent = active.length || '';
 }
+function jobThumb(j) { const lib = state.lib.find(m => m.id === j.video); return j.thumb || (lib && lib.thumb ? `media/${lib.id}/${lib.thumb}` : ''); }
+function jobTitle(j) { return j.title || (j.url ? shortUrl(j.url).host + ' · ' + shortUrl(j.url).rest : KIND[j.kind]); }
+function fillJobEl(w, j) {
+  const el = w.querySelector('.job'), th = jobThumb(j);
+  const sub = j.status === 'queued' ? 'In coda' : j.status === 'done' ? 'Completato' : j.status === 'error' ? 'Non riuscito' : (j.message || '');
+  const title = jobTitle(j);
+  el.className = `job ${j.status}`;
+  const tb = el.querySelector('.thumb'), thKey = th + '|' + !!j.audio;
+  if (tb._k !== thKey) { tb._k = thKey; tb.style.backgroundImage = th ? `url('${th}')` : ''; tb.innerHTML = (j.audio ? `<span class="badge">${ICON.audio}</span>` : '') + ICON.tick; }
+  const t = el.querySelector('.t'), full = (j.kind !== 'download' ? KIND[j.kind] + ' \u00b7 ' : '') + title;
+  if (t.textContent !== full) { t.textContent = full; t.title = title; }
+  el.querySelector('.s').textContent = sub;
+  el.querySelector('.pb i').style.transform = j.status === 'queued' ? '' : `scaleX(${j.status === 'done' ? 1 : clamp(j.progress, 0, 1)})`;
+}
+// "In corso" e' una cartella: occupa lo spazio di un solo video; la griglia completa sta nella finestra
+function renderJobFolder(vis) {
+  const act = vis.filter(j => j.status === 'running' || j.status === 'queued'), shown = act.length ? act : vis;
+  const stk = $('#actStk'), ths = shown.slice(0, 3).map(jobThumb);
+  const k = ths.join('|') + shown.length;
+  if (stk._k !== k) { stk._k = k;
+    stk.innerHTML = ths.map((t, i) => `<span class="stk-i" style="--i:${i};${t ? `background-image:url('${t}')` : ''}"></span>`).reverse().join('') || '<span class="stk-i"></span>'; }
+  const n = act.length, p = shown.length ? shown.reduce((a, j) => a + (j.status === 'done' ? 1 : j.status === 'error' ? 0 : clamp(j.progress, 0, 1)), 0) / shown.length : 0;
+  swapText($('#actT'), n ? (n === 1 ? '1 in corso' : `${n} in corso`) : 'Completati');
+  const run = act.find(j => j.status === 'running');
+  $('#actS').textContent = run ? (run.message || jobTitle(run)) : n ? 'In coda' : 'Pronti nella libreria';
+  $('#actBar').style.transform = `scaleX(${clamp(p, 0, 1)})`;
+}
 function renderJobs() {
   const now = Date.now() / 1000;
   const vis = state.jobs.filter(j => !j.ended || now - j.ended < (j.status === 'error' ? 12 : 3))
     .filter(j => (j.kind !== 'analyze' && j.kind !== 'prepare') || !j.ended || j.status === 'error').sort((a, b) => a.created - b.created);
   $('#actSec').classList.toggle('show', vis.length > 0);
   renderJobsHeader();
-  const box = $('#acts'), keep = new Set();
-  for (const j of vis) {
+  renderJobFolder(vis); trProgress();
+  if (fw.mode === 'jobs' && !vis.length) closeFw();
+  const box = $('#fwGrid'), keep = new Set();
+  if (fw.mode !== 'jobs') { jobEls.clear(); }
+  else for (const j of vis) {
     keep.add(j.id);
     let w = jobEls.get(j.id);
-    if (!w) {
+    if (!w || !w.isConnected) {
       w = document.createElement('div'); w.className = 'job-w' + (reduce ? '' : ' in');
       w.innerHTML = `<div><div class="job"><div class="thumb"></div><div class="info"><div class="t"></div><div class="s"></div><div class="pb"><i></i></div></div></div></div>`;
       jobEls.set(j.id, w); box.append(w);
     }
-    const el = w.querySelector('.job'), lib = state.lib.find(m => m.id === j.video);
-    const th = j.thumb || (lib && lib.thumb ? `media/${lib.id}/${lib.thumb}` : '');
-    const sub = j.status === 'queued' ? 'In coda' : j.status === 'done' ? 'Completato' : j.status === 'error' ? 'Non riuscito' : (j.message || '');
-    const title = j.title || (j.url ? shortUrl(j.url).host + ' · ' + shortUrl(j.url).rest : KIND[j.kind]);
-    el.className = `job ${j.status}`;
-    const tb = el.querySelector('.thumb'), thKey = th + '|' + !!j.audio;
-    if (tb._k !== thKey) { tb._k = thKey; tb.style.backgroundImage = th ? `url('${th}')` : ''; tb.innerHTML = (j.audio ? `<span class="badge">${ICON.audio}</span>` : '') + ICON.tick; }
-    const t = el.querySelector('.t'), full = (j.kind !== 'download' ? KIND[j.kind] + ' · ' : '') + title;
-    if (t.textContent !== full) { t.textContent = full; t.title = title; }
-    el.querySelector('.s').textContent = sub;
-    el.querySelector('.pb i').style.transform = j.status === 'queued' ? '' : `scaleX(${j.status === 'done' ? 1 : clamp(j.progress, 0, 1)})`;
+    fillJobEl(w, j);
   }
   for (const [id, w] of jobEls) if (!keep.has(id) && !w._out) {
     w._out = true; w.classList.remove('in'); w.classList.add('out');
@@ -426,8 +566,9 @@ const IC = {
 };
 function itemHTML(m, k, nw) {
   const th = m.thumb ? `media/${m.id}/${m.thumb}` : '';
-  return `<div class="item ${state.cur && state.cur.id === m.id ? 'on' : ''} ${nw && !reduce ? 'in' : ''}" style="--i:${nw ? Math.min(k, 10) : 0}" data-id="${m.id}">
+  return `<div class="item ${state.cur && state.cur.id === m.id ? 'on' : ''} ${nw && !reduce ? 'in' : ''} ${state.sel.has(m.id) ? 'sel' : ''}" style="--i:${nw ? Math.min(k, 10) : 0}" data-id="${m.id}" draggable="true">
     <div class="irow">
+      <span class="chk"><svg viewBox="0 0 24 24"><path d="m6 12.5 4 4 8-9"/></svg></span>
       <div class="thumb" style="${th ? `background-image:url('${th}')` : ''}">${m.audio ? `<span class="badge">${ICON.audio}</span>` : ''}</div>
       <div style="min-width:0"><div class="t">${esc(m.title)}</div>
       <div class="s">${fmt(m.duration)}${m.analysis ? ` → ${fmt(m.analysis.kept)}` : ''} · ${ago(m.created)}</div></div>
@@ -442,25 +583,41 @@ function itemHTML(m, k, nw) {
     </div></div>
   </div>`;
 }
+function folderHTML(f, k, nw) {
+  const vids = state.lib.filter(m => !m.archived && m.folder === f.id), th = vids.filter(m => m.thumb).slice(0, 4);
+  const tot = vids.reduce((a, m) => a + (m.duration || 0), 0);
+  return `<div class="item folder ${fw.mode === 'folder' && fw.id === f.id ? 'on' : ''} ${nw && !reduce ? 'in' : ''}" style="--i:${nw ? Math.min(k, 10) : 0}" data-fid="${f.id}">
+    <div class="irow"><div class="mosaic">${[0, 1, 2, 3].map(i => `<span style="${th[i] ? `background-image:url('media/${th[i].id}/${th[i].thumb}')` : ''}"></span>`).join('')}</div>
+    <div style="min-width:0"><div class="t">${esc(f.name)}</div><div class="s">${vids.length} video${vids.length ? ' \u00b7 ' + human(tot) : ''}</div></div>
+    <span class="fold-go"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span></div></div>`;
+}
+const folderSet = () => new Set(state.folders.map(f => f.id));
 async function loadLib() {
-  state.lib = await api('api/library');
+  const [lib, folders] = await Promise.all([api('api/library'), api('api/folders').catch(() => state.folders)]);
+  state.lib = lib; state.folders = folders;
   loadSpace(false);
+  const fs = folderSet();
   const live = state.lib.filter(m => !m.archived), arch = state.lib.filter(m => m.archived);
+  const root = live.filter(m => !m.folder || !fs.has(m.folder));
   $('#libCount').textContent = live.length || '';
   const el = $('#lib');
-  const key = JSON.stringify(state.lib.map(m => [m.id, m.thumb, m.title, m.archived, m.analysis && m.analysis.kept])) + (state.cur && state.cur.id) + showArch;
+  const key = JSON.stringify([state.lib.map(m => [m.id, m.thumb, m.title, m.archived, m.folder, m.analysis && m.analysis.kept]), state.folders]) + (state.cur && state.cur.id) + showArch + (fw.mode === 'folder' ? fw.id : '') + !!state.selecting;
+  renderFw();
   if (key === libKey) return; libKey = key; loadSpace(true);
   stopPreview();
   let k = 0;
   const mk = m => { const nw = !libSeen.has(m.id); libSeen.add(m.id); return itemHTML(m, nw ? k++ : 0, nw); };
-  el.innerHTML = (live.length ? live.map(mk).join('') : '<div class="lib-empty">Ancora nessun video. Incolla dei link oppure trascina dei file nella finestra.</div>')
+  const mf = f => { const id = 'f' + f.id, nw = !libSeen.has(id); libSeen.add(id); return folderHTML(f, nw ? k++ : 0, nw); };
+  const sorted = [...state.folders].sort((a, b) => a.name.localeCompare(b.name, 'it', { numeric: true }));
+  el.innerHTML = sorted.map(mf).join('') + (root.length ? root.map(mk).join('') : (state.folders.length ? '' : '<div class="lib-empty">Ancora nessun video. Incolla dei link oppure trascina dei file nella finestra.</div>'))
     + (arch.length ? `<button class="arch-h ${showArch ? 'open' : ''}" id="archTgl">${IC.chev}<span>Archiviati</span><em>${arch.length}</em></button>
       <div class="arch-l ${showArch ? 'open' : ''}"><div>${arch.map(mk).join('')}</div></div>` : '');
+  updSel();
 }
 // anteprima al passaggio del mouse: video muto a 10× sotto un vetro sfocato
 let pvItem = null, pvTimer = 0;
 function startPreview(it) {
-  if (pvItem === it) return; stopPreview(); pvItem = it; it.classList.add('hov');
+  if (pvItem === it || it.dataset.fid) return; stopPreview(); pvItem = it; it.classList.add('hov');
   const m = state.lib.find(x => x.id === it.dataset.id); if (!m || m.audio) return;
   const box = it.querySelector('.pvw-media');
   const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
@@ -473,7 +630,7 @@ function stopPreview() {
   clearTimeout(pvTimer); const it = pvItem; pvItem = null; if (!it) return;
   it.classList.remove('hov'); const d = it.querySelector('.pa-del'); d && d.classList.remove('arm');
   const v = it.querySelector('.pvw-media video');
-  if (v) setTimeout(() => { if (pvItem === it) return; v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }, 380);
+  if (v) setTimeout(() => { if (pvItem === it) return; v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }, 700);
 }
 const libEl = $('#lib');
 libEl.addEventListener('pointerover', e => {
@@ -488,12 +645,25 @@ let lp = 0;
 libEl.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') return; const it = e.target.closest('.item'); if (!it || e.target.closest('.pa')) return;
   clearTimeout(lp); lp = setTimeout(() => { it._lp = true; it === pvItem ? stopPreview() : startPreview(it); navigator.vibrate && navigator.vibrate(8); }, 450); });
 ['pointerup', 'pointercancel', 'pointermove'].forEach(ev => libEl.addEventListener(ev, e => { if (ev !== 'pointermove' || Math.abs(e.movementY) > 2) clearTimeout(lp); }));
+libEl.addEventListener('dblclick', e => { const t = e.target.closest('.item[data-id] .t'); if (!t || state.selecting) return;
+  const m = state.lib.find(x => x.id === t.closest('.item').dataset.id); if (m) renameOne(m.id, m.title); });
+// trascina un video su una cartella per spostarlo
+libEl.addEventListener('dragstart', e => { const it = e.target.closest('.item[data-id]'); if (!it) return; stopPreview();
+  const ids = state.selecting && state.sel.has(it.dataset.id) ? [...state.sel] : [it.dataset.id];
+  e.dataTransfer.setData('text/x-sc', JSON.stringify(ids)); e.dataTransfer.effectAllowed = 'move'; });
+const dropTarget = e => e.dataTransfer && [...e.dataTransfer.types].includes('text/x-sc') && e.target.closest('.item.folder');
+libEl.addEventListener('dragover', e => { const f = dropTarget(e); document.querySelectorAll('.item.folder.drop').forEach(x => x !== f && x.classList.remove('drop')); if (f) { e.preventDefault(); f.classList.add('drop'); } });
+libEl.addEventListener('dragleave', e => { if (e.target.closest) { const f = e.target.closest('.item.folder'); if (f && !f.contains(e.relatedTarget)) f.classList.remove('drop'); } });
+libEl.addEventListener('drop', async e => { const f = dropTarget(e); if (!f) return; e.preventDefault(); e.stopPropagation(); f.classList.remove('drop');
+  await post('api/move', { ids: JSON.parse(e.dataTransfer.getData('text/x-sc')), folder: f.dataset.fid }); refreshLib(); });
 libEl.addEventListener('contextmenu', e => { if (e.target.closest('.item') && matchMedia('(hover:none)').matches) e.preventDefault(); });
 
 libEl.addEventListener('click', async e => {
   if (e.target.closest('#archTgl')) { showArch = !showArch; libKey = ''; return loadLib(); }
   const it = e.target.closest('.item'); if (!it) return;
   if (it._lp) { it._lp = false; return; }
+  if (it.dataset.fid) { e.stopPropagation(); return fw.mode === 'folder' && fw.id === it.dataset.fid ? closeFw() : openFw('folder', it.dataset.fid, it); }
+  if (state.selecting && !e.target.closest('.pa')) { const i = it.dataset.id; state.sel.has(i) ? state.sel.delete(i) : state.sel.add(i); return updSel(); }
   const id = it.dataset.id, act = (e.target.closest('.pa') || {}).dataset?.act || 'open';
   e.stopPropagation();
   if (act === 'archive' || act === 'unarchive') {
@@ -529,7 +699,8 @@ async function open(id) {
   maybeVideoTour();
   if (!same) {
     const src = `media/${m.id}/${m.file}`, st = m.settings || {};
-    state.skip = st.skip !== undefined ? st.skip : true; setSpeed(st.speed || 1, false);
+    state.skip = st.skip !== undefined ? st.skip : true; state.skipCuts = st.skipCuts !== undefined ? st.skipCuts : true; setSpeed(st.speed || 1, false);
+    $('#exCuts').checked = state.skipCuts; state.cutIn = state.cutOut = null; trSwitch(m.id);
     const a = m.analysis || {}; $('#noise').value = a.noise ?? DEF.noise; $('#mind').value = a.min ?? DEF.min; $('#pad').value = a.pad ?? DEF.pad; syncAdv();
     $('#exRemove').checked = state.skip;
     state.src = null; syncSrc(0, false);
@@ -550,11 +721,12 @@ async function open(id) {
   if (m.analysis && !advDirty) { $('#noise').value = m.analysis.noise; $('#mind').value = m.analysis.min; $('#pad').value = m.analysis.pad; syncAdv(); }
   renderPanel();
   if (same) syncSrc();
-  renderAnalysis(); renderExports(!same); loadLib(); renderJobs(); tlKey = '';
+  renderAnalysis(); renderCuts(); renderMarkers(); renderExports(!same); loadLib(); renderJobs(); tlKey = '';
 }
 function renderPanel() {
   const m = state.cur;
-  $('#pEmpty').hidden = !!m; $('#pBody').hidden = !m;
+  $('#pEmpty').hidden = !!m; $('#pBody').hidden = !m; $('#pBody2').hidden = !m; $('#rpNone').hidden = !!m;
+  ['#paneTr', '#paneMk', '#paneCt'].forEach(x => $(x).hidden = !m); $('#tabs').hidden = !m;
   if (!m) return;
   $('#pTitle').textContent = m.title; $('#pTitle').title = m.title;
   $('#pThumb').style.backgroundImage = m.thumb ? `url('media/${m.id}/${m.thumb}')` : '';
@@ -563,7 +735,7 @@ function renderPanel() {
 let setT = 0;
 function saveSettings() { // salvate nel video: ogni video ricorda velocita' e salto delle pause
   const m = state.cur; if (!m) return;
-  m.settings = { speed: state.speed, skip: state.skip };
+  m.settings = { speed: state.speed, skip: state.skip, skipCuts: state.skipCuts };
   clearTimeout(setT); setT = setTimeout(() => post('api/settings', { id: m.id, ...m.settings }).catch(() => {}), 400);
 }
 function renderAnalysis() {
@@ -575,20 +747,38 @@ function renderAnalysis() {
 }
 function renderStats() {
   const m = state.cur; if (!m) return;
-  const a = m.analysis, d = m.duration, eff = (a && state.skip ? a.kept : d) / state.speed;
+  const a = m.analysis, d = m.duration, rem = removedRanges();
+  const removed = rem.reduce((t, [x, y]) => t + Math.max(0, Math.min(y, d) - x), 0), eff = (d - removed) / state.speed;
   $('#stOrig').textContent = fmt(d);
   $('#stNoSil').textContent = a ? fmt(a.kept) : '–';
   tween($('#stEff'), eff, fmt);
-  tween($('#stSaved'), d - eff, v => v > 1 ? `${fmt(v)} · ${Math.round(v / d * 100)}%` : '–');
+  tween($('#stSaved'), d - eff, v => v > 1 ? `${fmt(v)} <small>${Math.round(v / d * 100)}%</small>` : '–');
+  $('#stSavedSub').textContent = d - eff > 1 ? `${fmt(d)} diventano ${fmt(eff)}` : 'in questo video';
+  renderLibSaved();
 }
-const exportLabel = () => `Crea a ${sp(state.speed)}${$('#exRemove').checked ? ' · senza pause' : ''}`;
-$('#exRemove').addEventListener('change', () => { if (!$('#exportBtn').classList.contains('busy')) swapText($('#exLabel'), exportLabel()); });
+function renderLibSaved() {
+  const t = state.lib.reduce((a, m) => a + (m.analysis ? Math.max(0, m.duration - m.analysis.kept) : 0), 0);
+  $('#stLibSaved').textContent = t > 1 ? human(t) : '–';
+}
+// parti da saltare in questo momento: silenzi (se attivi) + tagli (se attivi), unite
+let rvKey = '', rvVal = [];
+function removedRanges() {
+  const m = state.cur; if (!m) return [];
+  const k = [m.id, state.skip, state.skipCuts, m.analysis && m.analysis.key, (m.cuts || []).map(c => c.id + c.s + c.e).join()].join('|');
+  if (k === rvKey) return rvVal;
+  const r = []; if (m.analysis && state.skip) r.push(...m.analysis.skips); if (state.skipCuts && m.cuts) r.push(...m.cuts.map(c => [c.s, c.e]));
+  r.sort((x, y) => x[0] - y[0]); const out = [];
+  for (const [x, y] of r) { if (out.length && x <= out[out.length - 1][1]) out[out.length - 1][1] = Math.max(out[out.length - 1][1], y); else out.push([x, y]); }
+  rvKey = k; return rvVal = out;
+}
+const exportLabel = () => `Crea a ${sp(state.speed)}${$('#exRemove').checked ? ' · senza pause' : ''}${$('#exCuts').checked && state.cur && (state.cur.cuts || []).length ? ' · senza tagli' : ''}`;
+['#exRemove', '#exCuts'].forEach(x => $(x).addEventListener('change', () => { if (!$('#exportBtn').classList.contains('busy')) swapText($('#exLabel'), exportLabel()); }));
 const expSeen = new Set();
 function renderExports(reset) {
   const m = state.cur, ex = (m && m.exports) || [];
   if (reset) { expSeen.clear(); ex.forEach(e => expSeen.add(e.file)); }
   $('#exports').innerHTML = ex.map(e => { const nw = !expSeen.has(e.file); expSeen.add(e.file);
-    return `<div class="exp ${nw ? 'in' : ''}"><div class="n">${sp(e.speed)}${e.remove ? ' · senza silenzi' : ''}
+    return `<div class="exp ${nw ? 'in' : ''}"><div class="n">${sp(e.speed)}${e.remove ? ' · senza silenzi' : ''}${e.cuts ? ' · senza tagli' : ''}
     <small>${fmt(e.duration)} · ${(e.size / 1e6).toFixed(e.size < 1e7 ? 1 : 0).replace('.', ',')} MB</small></div>
     <a href="media/${m.id}/${e.file}?dl=1">Salva</a>
     <button class="ib" data-del="${esc(e.file)}" title="Elimina">${ICON.x}</button></div>`; }).join('');
@@ -702,8 +892,22 @@ class CutStream {
     const p = this.wait(); this.sb.remove(0, t); await p;
     this.segs.forEach((g, i) => { if (g.e <= t) this.have.delete(i); });
   }
+  // i pezzi segnati come scaricati ma non piu' nel buffer (rimossi dal browser) vanno riscaricati
+  resync() {
+    const b = this.sb && this.sb.buffered; if (!b) return;
+    // basta che il centro del pezzo sia nel buffer (ai confini ci possono essere scarti di pochi ms)
+    const has = m => { for (let k = 0; k < b.length; k++) if (b.start(k) <= m && b.end(k) >= m) return true; return false; };
+    this.segs.forEach((g, i) => { if (this.have.has(i) && !has((g.s + g.e) / 2)) this.have.delete(i); });
+  }
   async tick() {
-    if (this.busy || this.dead || !this.sb) return; this.busy = true;
+    if (this.dead || !this.sb) return;
+    if (this.busy) { this.again = true; return; }   // un evento arrivato durante il lavoro non va perso
+    this.busy = true;
+    try {
+      do { this.again = false; this.resync(); await this.fill(); } while (this.again && !this.dead);
+    } finally { this.busy = false; }
+  }
+  async fill() {
     try {
       while (!this.dead) {
         const t = this.v.currentTime, ahead = t + 20 + 10 * (this.v.playbackRate || 1);
@@ -716,10 +920,35 @@ class CutStream {
       }
       const last = this.segs.length - 1;
       if (this.ended && last >= 0 && this.have.has(last) && this.ms.readyState === 'open' && !this.sb.updating) this.ms.endOfStream();
-    } catch (e) { if (!this.dead) console.warn('stream', e); }
-    finally { this.busy = false; }
+    } catch (e) { if (!this.dead) { console.warn('stream', e); await sleep(400); this.again = true; } }
   }
 }
+/* Anti-blocco: se il video si ferma in un "buco" tra due pezzi del buffer (capita ai confini dei pezzi),
+   il browser non riparte da solo finche' non si cerca piu' avanti. Qui saltiamo il buco, e se mancano
+   dati riscarichiamo i pezzi. Vale per tutte le sorgenti (originale, streaming, file). */
+let stallSince = 0;
+function unstick() {
+  if (!state.cur || video.paused || video.seeking || video.ended || !video.src) { stallSince = 0; return; }
+  const t = video.currentTime, b = video.buffered;
+  let inRange = false, next = null;
+  for (let i = 0; i < b.length; i++) {
+    if (b.start(i) <= t + .02 && b.end(i) > t + .25) inRange = true;
+    if (b.start(i) > t && (next === null || b.start(i) < next)) next = b.start(i);
+  }
+  if (inRange && video.readyState >= 3) { stallSince = 0; return; }
+  if (!stallSince) stallSince = performance.now();
+  if (next !== null && next - t < 2.5 && performance.now() - stallSince > 250) {
+    video.currentTime = next + .02; stallSince = 0; return;    // salta il buco
+  }
+  if (performance.now() - stallSince > 1500 && state.stream) {
+    state.stream.have.clear(); state.stream.tick();               // forza il riscarico attorno alla posizione
+  }
+  if (performance.now() - stallSince > 4000 && !inRange) {       // ancora fermo: ricarica la sorgente nello stesso punto
+    stallSince = performance.now(); const t0 = curT(); state.src = null; syncSrc(t0, true);
+  }
+}
+setInterval(unstick, 300);
+['waiting', 'stalled'].forEach(ev => video.addEventListener(ev, () => setTimeout(unstick, 200)));
 const inCut = () => state.src === 'cut' && cutOk(state.cur);
 function segAt(mp, t, k) { // ultimo tratto con mp[i][k] <= t
   let lo = 0, hi = mp.length - 1, r = 0;
@@ -847,8 +1076,14 @@ function loop() {
       if (performance.now() - lastFlash > 1500 && sk[1] - sk[0] > 2) { lastFlash = performance.now(); flash(`Saltati ${num(sk[1] - sk[0], 1)} s di pausa`); }
     }
   }
-  drawTL(); requestAnimationFrame(loop);
+  if (state.skipCuts && state.cur && state.cur.cuts && state.cur.cuts.length && !video.paused && !video.seeking && state.pend == null) {
+    const t = curT(), c = findCut(t);
+    if (c && c.e - t > 0.05 && performance.now() - cutAt > 300) { cutAt = performance.now(); seekTo(Math.min(c.e, durT())); flash(`Taglio saltato · ${num(c.e - c.s, 1)} s`); }
+  }
+  trTick(); drawTL(); requestAnimationFrame(loop);
 }
+let cutAt = 0;
+const findCut = t => (state.cur.cuts || []).find(c => t >= c.s && t < c.e) || null;
 function flash(t) { const f = $('#flash'); f.textContent = t; f.classList.add('show'); clearTimeout(f._t); f._t = setTimeout(() => f.classList.remove('show'), 1300); }
 
 /* ---------- player ---------- */
@@ -924,7 +1159,7 @@ function drawTL() {
   let buf = 0; try { const b = video.buffered; for (let i = 0; i < b.length; i++) if (b.start(i) <= video.currentTime + .5) buf = Math.max(buf, b.end(i)); } catch {}
   if (inCut()) buf = toOrig(buf);
   const ct = curT();
-  const key = [W, H, dpr, ct.toFixed(2), state.skip, m.id, m.analysis && m.analysis.count, hoverX, buf.toFixed(0), !!fsEl(), thick.toFixed(2), knob.toFixed(2), state.speed].join('|');
+  const key = [W, H, dpr, ct.toFixed(2), state.skip, state.skipCuts, (m.cuts || []).map(c => c.s + c.e).join(), (m.markers || []).map(x => x.t).join(), state.cutIn, m.id, m.analysis && m.analysis.count, hoverX, buf.toFixed(0), !!fsEl(), thick.toFixed(2), knob.toFixed(2), state.speed].join('|');
   if (key === tlKey || !W) return; tlKey = key;
   if (!colors) colors = { sil: cssv('--silence'), sp: cssv('--speech'), faint: cssv('--faint'), head: cssv('--head') };
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
@@ -935,8 +1170,11 @@ function drawTL() {
   ctx.save(); ctx.beginPath(); ctx.roundRect(X(0), y, W - 2 * R, h, h / 2); ctx.clip();
   ctx.fillStyle = colors.sil; ctx.fillRect(0, y, W, h);
   ctx.fillStyle = colors.sp; ctx.globalAlpha = .38; spans(buf);
-  ctx.globalAlpha = 1; ctx.beginPath(); ctx.rect(0, y, X(px), h); ctx.clip(); spans(ct);
+  ctx.globalAlpha = 1; ctx.save(); ctx.beginPath(); ctx.rect(0, y, X(px), h); ctx.clip(); spans(ct); ctx.restore();
+  for (const c of m.cuts || []) { ctx.fillStyle = state.skipCuts ? 'rgba(238,138,108,.75)' : 'rgba(238,138,108,.3)'; ctx.fillRect(X(c.s / d * W), y, Math.max(2, (c.e - c.s) / d * (W - 2 * R)), h); }
   ctx.restore();
+  for (const x of m.markers || []) { ctx.fillStyle = x.color || '#7d93f2'; const mx = X(x.t / d * W); ctx.fillRect(mx - 1, y - 4, 2, h + 8); ctx.beginPath(); ctx.arc(mx, y - 5, 2.6, 0, 7); ctx.fill(); }
+  if (state.cutIn != null) { ctx.fillStyle = '#ee8a6c'; ctx.fillRect(X(state.cutIn / d * W) - 1, y - 5, 2, h + 10); }
   if (hoverX >= 0 && !dragging) { ctx.fillStyle = colors.faint; ctx.fillRect(X(hoverX) - .5, y - 3, 1, h + 6); }
   ctx.fillStyle = colors.head; ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 4;
   ctx.beginPath(); ctx.arc(X(px), H / 2, knob, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
@@ -945,9 +1183,8 @@ function drawTL() {
   const te = $('#tTime'); if (te._h !== tt) { te._h = tt; te.innerHTML = tt; }
 }
 function remaining() {
-  if (inCut()) return Math.max(0, (video.duration || state.cur.cut.duration) - video.currentTime) / state.speed;
-  const m = state.cur, d = durT(), t = curT(); let left = d - t;
-  if (m.analysis && state.skip) for (const [s, e] of m.analysis.skips) if (e > t) left -= e - Math.max(s, t);
+  const d = durT(), t = curT(); let left = d - t;
+  for (const [x, y] of removedRanges()) if (y > t) left -= Math.min(y, d) - Math.max(x, t);
   return Math.max(0, left) / state.speed;
 }
 const tAt = x => clamp(x / cv.clientWidth, 0, 1) * durT();
@@ -966,7 +1203,8 @@ function seekHover(e) {
   const r = seek.getBoundingClientRect(); hoverX = clamp(e.clientX - r.left, 0, r.width);
   const t = tAt(hoverX), half = isAudio() || matchMedia('(hover:none)').matches ? 40 : 90;
   tip.style.left = `${clamp(hoverX, half, r.width - half)}px`;
-  $('#tipT').innerHTML = `${fmt(t)}${findSkip(t) ? '<em>pausa</em>' : ''}`;
+  const near = (state.cur.markers || []).find(x => Math.abs(x.t - t) / (durT() || 1) * r.width < 7);
+  $('#tipT').innerHTML = `${fmt(t)}${near ? `<em>${esc(near.label || 'Segnaposto')}</em>` : findCut(t) ? '<em>taglio</em>' : findSkip(t) ? '<em>pausa</em>' : ''}`;
   seek.classList.add('hov');
   if (dragging) seekTo(t, true); else preview(t);
 }
@@ -1015,11 +1253,13 @@ video.addEventListener('loadedmetadata', () => { video.playbackRate = state.spee
 
 /* ---------- export / delete ---------- */
 $('#exportBtn').onclick = async () => {
-  const m = state.cur; if (!m) return; const remove = $('#exRemove').checked;
+  const m = state.cur; if (!m) return; const remove = $('#exRemove').checked, cuts = $('#exCuts').checked && (m.cuts || []).length > 0;
   if (remove && !m.analysis) return toast('Analizza prima i silenzi', '', 'err');
-  try { await post('api/export', { id: m.id, speed: state.speed, remove }); pollJobs(); }
+  try { await post('api/export', { id: m.id, speed: state.speed, remove, cuts }); pollJobs(); }
   catch (err) { toast('Esportazione non riuscita', err.message, 'err'); }
 };
+$('#renBtn').onclick = () => state.cur && renameOne(state.cur.id, state.cur.title);
+$('#vTitle').addEventListener('dblclick', () => $('#renBtn').click());
 $('#delBtn').onclick = async () => {
   const m = state.cur; if (!confirm(`Eliminare "${m.title}" e le sue esportazioni?`)) return;
   await api(`api/video/${m.id}`, { method: 'DELETE' });
@@ -1035,16 +1275,252 @@ async function closeViewer() {
   $('#viewer').hidden = true; $('#empty').hidden = false; renderPanel(); window.BGFX && BGFX.mode('shapes');
 }
 
+/* ---------- pannello laterale: schede ---------- */
+function setTab(n) {
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === n));
+  ['tr', 'mk', 'ct'].forEach(k => $('#pane' + k[0].toUpperCase() + k[1]).classList.toggle('on', k === n));
+  const on = $('#tabs button.on'), ind = $('#tabInd');
+  if (on && on.offsetWidth) { ind.style.width = on.offsetWidth + 'px'; ind.style.transform = `translateX(${on.offsetLeft}px)`; ind.style.opacity = 1; }
+  try { localStorage.tab = n; } catch {}
+  if (n === 'tr') { TR.cur = -1; TR.keyT = 0; }
+}
+$('#tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setTab(b.dataset.tab); });
+const tabIn = () => { try { return localStorage.tab || 'tr'; } catch { return 'tr'; } };
+const revealTab = n => { if (!sideOpen('r')) setSide('r', true); setTab(n); };
+
+/* ---------- trascrizione: stile "testi di Spotify" ---------- */
+const TR = { id: null, status: 'none', segs: [], lang: null, msg: '', cur: -1, timer: 0, follow: true, userT: 0, words: [], seq: 0, built: 0, keyT: 0 };
+const loadKatex = () => window.katex ? Promise.resolve() : new Promise(r => { const t = setInterval(() => { if (window.katex) { clearInterval(t); r(); } }, 80); });
+const FM = new Map();
+function fm(x) {
+  if (!window.katex) return esc('$' + x + '$');
+  let h = FM.get(x);
+  if (h === undefined) { try { h = katex.renderToString(x, { throwOnError: false, strict: 'ignore', output: 'html' }); } catch { h = esc(x); } FM.set(x, h); }
+  return h;
+}
+function segHTML(g, chars) {
+  return g.u.map(u => {
+    if (u.k === 'm') return `<span class="fm" data-s="${u.s}" data-e="${u.e}">${fm(u.x)}</span>${u.p ? `<span class="pn">${esc(u.p)}</span>` : ''} `;
+    return `<span class="w" data-s="${u.s}" data-e="${u.e}">${chars ? [...u.x].map(c => `<i>${esc(c)}</i>`).join('') : esc(u.x)}</span> `;
+  }).join('');
+}
+const rowHTML = (g, i) => `<div class="tl" data-i="${i}"><span class="tl-ts">${fmt(g.s)}</span><div class="tl-t">${segHTML(g, false)}</div></div>`;
+const segText = g => g.u.map(u => u.k === 'm' ? `$${u.x}$${u.p || ''}` : u.x).join(' ');
+function trSwitch(id) {
+  if (TR.id === id) return;
+  clearTimeout(TR.timer); Object.assign(TR, { id, status: 'none', segs: [], lang: null, msg: '', cur: -1, words: [], built: 0, seq: TR.seq + 1 });
+  $('#trList').innerHTML = ''; trHead(); trLoad(true);
+}
+async function trLoad(reset) {
+  const id = TR.id, seq = TR.seq; if (!id) return; clearTimeout(TR.timer);
+  try {
+    const from = reset ? 0 : TR.segs.length;
+    const d = await api(`api/transcript?id=${id}&from=${from}`); if (seq !== TR.seq) return;
+    if (reset || d.total < TR.segs.length) { TR.segs = d.segments; TR.built = 0; TR.cur = -1; $('#trList').innerHTML = ''; } else TR.segs.push(...d.segments);
+    Object.assign(TR, { status: d.status, lang: d.language, msg: d.msg || '' });
+    if (TR.segs.length && !window.katex) loadKatex().then(() => { if (seq === TR.seq) { TR.built = 0; TR.cur = -1; $('#trList').innerHTML = ''; trBuild(); } });
+    trBuild(); trHead();
+    if (d.status === 'running' || d.status === 'queued') TR.timer = setTimeout(() => trLoad(false), 2500);
+  } catch { TR.timer = setTimeout(() => trLoad(false), 5000); }
+}
+function trBuild() {
+  const box = $('#trList'); if (TR.built >= TR.segs.length) return;
+  box.insertAdjacentHTML('beforeend', TR.segs.slice(TR.built).map((g, k) => rowHTML(g, TR.built + k)).join('')); TR.built = TR.segs.length;
+}
+function trHead() {
+  const st = $('#trSt'), n = TR.segs.length;
+  const btn = (id, t) => `<button class="tr-act" id="${id}">${t}</button>`;
+  let h;
+  if (!state.whisper) h = '<span class="tr-msg">Trascrizione non installata sul server</span>';
+  else if (TR.status === 'none') h = `<span class="tr-msg">Nessuna trascrizione</span>${btn('trGo', 'Trascrivi')}`;
+  else if (TR.status === 'queued') h = '<span class="tr-msg"><span class="spin"></span>In coda…</span>';
+  else if (TR.status === 'running') h = `<span class="tr-msg"><span class="spin"></span><span id="trPct">Trascrizione in corso</span></span>`;
+  else if (TR.status === 'done') h = `<span class="tr-msg">${n} frasi · ${TR.lang === 'it' ? 'italiano' : TR.lang === 'en' ? 'inglese' : esc(TR.lang || '')}</span>${btn('trGo', 'Rifai')}`;
+  else h = `<span class="tr-msg err">${TR.status === 'interrupted' ? 'Interrotta' : esc((TR.msg || 'Non riuscita').slice(0, 110))}</span>${btn('trGo', 'Riprova')}`;
+  if (st._h !== h) { st._h = h; st.innerHTML = h; }
+  $('#trExp').disabled = !n; $('#trFollow').classList.toggle('on', TR.follow);
+  if (!n && TR.status !== 'running' && TR.status !== 'queued') $('#trList').innerHTML = TR.status === 'done' ? '<div class="lib-empty">Nessun parlato riconosciuto.</div>' : '';
+}
+function trProgress() {
+  const j = state.jobs.find(x => x.kind === 'transcribe' && x.video === TR.id && !x.ended), bar = $('#trBar i');
+  bar.style.transform = j ? `scaleX(${clamp(j.progress, 0, 1)})` : 'scaleX(0)'; $('#trBar').classList.toggle('on', !!j);
+  const p = $('#trPct'); if (p && j) p.textContent = j.progress > 0 ? `Trascrizione ${Math.round(j.progress * 100)}%` : (j.message || 'Avvio…');
+}
+$('#trSt').addEventListener('click', async e => {
+  if (!e.target.closest('#trGo') || !TR.id) return;
+  if (TR.status === 'done' && !await dialog({ title: 'Rifare la trascrizione?', text: 'La versione attuale, comprese le tue correzioni, verrà sostituita.', ok: 'Rifai' })) return;
+  try { await post('api/transcribe', { id: TR.id, force: true }); TR.status = 'queued'; TR.segs = []; TR.built = 0; $('#trList').innerHTML = ''; trHead(); pollJobs(); TR.timer = setTimeout(() => trLoad(true), 1500); }
+  catch (err) { toast('Trascrizione non avviata', err.message, 'err'); }
+});
+$('#trFollow').onclick = () => { TR.follow = !TR.follow; TR.userT = 0; trHead(); if (TR.follow) { TR.cur = -1; } };
+const trListEl = $('#trList');
+['wheel', 'touchmove'].forEach(ev => trListEl.addEventListener(ev, () => { TR.userT = Date.now(); }, { passive: true }));
+trListEl.addEventListener('click', e => {
+  const row = e.target.closest('.tl'); if (!row) return; const g = TR.segs[+row.dataset.i]; if (!g) return;
+  const w = e.target.closest('.w,.fm'); seekTo(clamp(w ? +w.dataset.s : g.s, 0, durT())); TR.userT = 0;
+});
+trListEl.addEventListener('dblclick', async e => {
+  const row = e.target.closest('.tl'); if (!row || TR.status === 'running' || TR.status === 'queued') return; const i = +row.dataset.i, g = TR.segs[i]; if (!g) return;
+  const v = await dialog({ title: 'Correggi la frase', text: 'Le formule vanno fra dollari, come $x^2+1$. Se svuoti il testo la frase viene tolta.', input: { value: segText(g), area: true }, ok: 'Salva' });
+  if (v === null) return;
+  try { await post('api/transcript/edit', { id: TR.id, seg: i, text: v }); trLoad(true); } catch (err) { toast('Modifica non riuscita', err.message, 'err'); }
+});
+// evidenziazione: la frase attuale si illumina lettera per lettera, le formule si rivelano da sinistra a destra
+function trActivate(i) {
+  const rows = trListEl.children, a = TR.cur;
+  const lo = a < 0 ? 0 : Math.min(a, i), hi = a < 0 ? rows.length - 1 : Math.max(a, i);
+  for (let k = Math.max(0, lo); k <= Math.min(rows.length - 1, hi); k++) { const r = rows[k]; r.classList.toggle('past', k < i); r.classList.remove('cur'); if (r._chars) { r._chars = false; r.querySelector('.tl-t').innerHTML = segHTML(TR.segs[k], false); } }
+  TR.cur = i; const row = rows[i]; if (!row) { TR.words = []; return; }
+  row.classList.add('cur'); row._chars = true; row.querySelector('.tl-t').innerHTML = segHTML(TR.segs[i], true);
+  TR.words = [...row.querySelectorAll('.w,.fm')].map(el => ({ el, s: +el.dataset.s, e: +el.dataset.e, ch: el.classList.contains('w') ? [...el.children] : null, lit: -1 }));
+  if (TR.follow && Date.now() - TR.userT > 3500) trListEl.scrollTo({ top: row.offsetTop - trListEl.clientHeight * .34, behavior: reduce || a < 0 ? 'auto' : 'smooth' });
+}
+function trTick() {
+  if (!TR.segs.length || !state.cur || state.cur.id !== TR.id || !$('#paneTr').classList.contains('on') || !sideOpen('r')) return;
+  const t = curT(), segs = TR.segs;
+  let lo = 0, hi = segs.length - 1, i = -1;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (segs[mid].s <= t + .05) { i = mid; lo = mid + 1; } else hi = mid - 1; }
+  if (i < 0) { if (TR.cur >= 0) trActivate(-1); return; }
+  if (i !== TR.cur || TR.keyT !== trListEl.children.length) { TR.keyT = trListEl.children.length; if (i < trListEl.children.length) trActivate(i); }
+  for (const w of TR.words) {
+    if (t >= w.e) { if (w.lit !== 2) { w.lit = 2; w.el.classList.add('on'); w.ch && w.ch.forEach(c => c.classList.add('on')); w.el.style.removeProperty('--p'); } }
+    else if (t < w.s) { if (w.lit !== 0) { w.lit = 0; w.el.classList.remove('on'); w.ch && w.ch.forEach(c => c.classList.remove('on', 'now')); w.el.style.setProperty('--p', 0); } }
+    else {
+      w.lit = 1; const f = (t - w.s) / Math.max(.05, w.e - w.s);
+      if (w.ch) { const n = w.ch.length, k = Math.min(n, Math.floor(f * n + .02)); if (w._k !== k) { w._k = k; w.ch.forEach((c, x) => { c.classList.toggle('on', x < k); c.classList.toggle('now', x === k); }); } }
+      else { const q = Math.round(f * 50) / 50; if (w._q !== q) { w._q = q; w.el.style.setProperty('--p', q); } }
+    }
+  }
+}
+// esportazione: .txt e .tex dal server, PDF stampando una pagina con le formule composte da KaTeX
+$('#trExp').onclick = e => { e.stopPropagation(); $('#trMenu').classList.toggle('open'); };
+document.addEventListener('pointerdown', e => { if (!e.target.closest('#trMenu,#trExp')) $('#trMenu').classList.remove('open'); });
+$('#trMenu').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || !TR.id) return; $('#trMenu').classList.remove('open');
+  if (b.dataset.fmt === 'pdf') return trPdf();
+  const a = document.createElement('a'); a.href = `api/transcript/export?id=${TR.id}&fmt=${b.dataset.fmt}`; document.body.append(a); a.click(); a.remove();
+});
+async function trPdf() {
+  const m = state.cur; if (!m || !TR.segs.length) return;
+  const w = window.open('', '_blank'); if (!w) return toast('Il browser ha bloccato la finestra', 'Consenti i popup per questo sito e riprova', 'err');
+  w.document.write('<p style="font:15px system-ui;padding:30px">Preparo il PDF…</p>');
+  await loadKatex();
+  const paras = []; let cur = [], last = null;
+  for (const g of TR.segs) {
+    if (last !== null && g.s - last > 2.5 && cur.length) { paras.push(cur.join(' ')); cur = []; }
+    cur.push((cur.length ? '' : `<span class="ts">${fmt(g.s)}</span> `) + g.u.map(u => u.k === 'm' ? fm(u.x) + esc(u.p || '') : esc(u.x)).join(' ')); last = g.e;
+  }
+  if (cur.length) paras.push(cur.join(' '));
+  const css = new URL('vendor/katex/katex.min.css', location.href).href;
+  w.document.open();
+  w.document.write(`<!doctype html><html lang="it"><head><meta charset="utf-8"><title>${esc(m.title)} · trascrizione</title><link rel="stylesheet" href="${css}">
+<style>@page{size:A4;margin:22mm 20mm}body{font:11.5pt/1.6 "Latin Modern Roman","Computer Modern",Georgia,"Times New Roman",serif;color:#111;max-width:170mm;margin:24px auto;padding:0 16px}
+h1{font-size:19pt;margin:0 0 4pt}.sub{color:#777;font:9pt system-ui;margin-bottom:18pt}p{margin:0 0 9pt;text-align:justify;hyphens:auto}.ts{font:8pt system-ui;color:#888;margin-right:3px}.katex{font-size:1.04em}</style></head>
+<body><h1>${esc(m.title)}</h1><div class="sub">Trascrizione · ${fmt(m.duration)}</div>${paras.map(p => `<p>${p}</p>`).join('')}
+<script>document.fonts.ready.then(()=>setTimeout(()=>window.print(),400))<\/script></body></html>`);
+  w.document.close();
+}
+
+/* ---------- segnaposti ---------- */
+async function addMarker(label) {
+  const m = state.cur; if (!m) return;
+  const n = (m.markers || []).length + 1;
+  try {
+    const r = await post('api/markers', { id: m.id, t: curT(), label: label ?? `Segnaposto ${n}` });
+    m.markers = r.markers; renderMarkers(); tlKey = ''; flash('Segnaposto aggiunto'); revealTab('mk');
+    const inp = document.querySelector(`#mkList [data-id="${r.marker.id}"] .mk-l`); if (inp && !isMob()) { inp.focus(); inp.select(); }
+  } catch (err) { toast('Segnaposto non aggiunto', err.message, 'err'); }
+}
+function renderMarkers() {
+  const m = state.cur, mk = (m && m.markers) || [];
+  $('#mkN').textContent = mk.length || '';
+  const box = $('#mkList'), key = JSON.stringify(mk); if (box._k === key) return; box._k = key;
+  box.innerHTML = mk.length ? mk.map(x => `<div class="mk" data-id="${x.id}"><button class="mk-t" data-go="${x.t}">${fmt(x.t)}</button>
+    <input class="mk-l" value="${esc(x.label)}" placeholder="Senza nome" maxlength="80"><button class="ib sm" data-del="${x.id}" title="Elimina">${ICON.x}</button></div>`).join('')
+    : '<div class="lib-empty">Nessun segnaposto. Premi <kbd>B</kbd> mentre guardi, oppure il pulsante con la bandierina sotto il video.</div>';
+}
+$('#mkAdd').onclick = () => addMarker(); $('#mkBtn').onclick = () => addMarker();
+$('#mkList').addEventListener('click', async e => {
+  const g = e.target.closest('[data-go]'); if (g) return seekTo(+g.dataset.go);
+  const d = e.target.closest('[data-del]'); if (!d || !state.cur) return;
+  const r = await post('api/markers/delete', { id: state.cur.id, mid: d.dataset.del }); state.cur.markers = r.markers; renderMarkers(); tlKey = '';
+});
+$('#mkList').addEventListener('change', async e => {
+  const i = e.target.closest('.mk-l'); if (!i || !state.cur) return; const id = i.closest('.mk').dataset.id;
+  const r = await post('api/markers/update', { id: state.cur.id, mid: id, label: i.value }); state.cur.markers = r.markers; $('#mkList')._k = JSON.stringify(r.markers);
+});
+$('#mkList').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.mk-l')) e.target.blur(); });
+
+/* ---------- tagli (parti saltate come i silenzi, ma scelte a mano) ---------- */
+const parseT = v => { const p = String(v).trim().replace(',', '.').split(':').map(Number); if (!p.length || p.some(isNaN)) return null; return p.reduce((a, x) => a * 60 + x, 0); };
+function cutMark(w) {
+  if (!state.cur) return; const t = curT();
+  if (w === 'in') { state.cutIn = t; if (state.cutOut != null && state.cutOut <= t) state.cutOut = null; }
+  else { state.cutOut = t; if (state.cutIn != null) return cutAdd(); }
+  revealTab('ct'); renderCuts(); tlKey = '';
+}
+async function cutAdd() {
+  const m = state.cur; if (!m || state.cutIn == null || state.cutOut == null) return;
+  const s = Math.min(state.cutIn, state.cutOut), e = Math.max(state.cutIn, state.cutOut);
+  try { const r = await post('api/cuts', { id: m.id, s, e }); m.cuts = r.cuts; state.cutIn = state.cutOut = null; if (!state.skipCuts) { state.skipCuts = true; saveSettings(); } revealTab('ct'); renderCuts(); renderStats(); tlKey = ''; flash(`Taglio di ${num(e - s, 1)} s aggiunto`); }
+  catch (err) { toast('Taglio non aggiunto', err.message, 'err'); }
+}
+function renderCuts() {
+  const m = state.cur, cs = (m && m.cuts) || [], tot = cs.reduce((a, c) => a + c.e - c.s, 0);
+  $('#ctN').textContent = cs.length || '';
+  $('#cutToggle').classList.toggle('on', !!cs.length && state.skipCuts); $('#cutToggle').setAttribute('aria-checked', !!cs.length && state.skipCuts);
+  $('#qCuts').disabled = !cs.length; $('#qCuts').classList.toggle('on', !!cs.length && state.skipCuts);
+  $('#cutSub').textContent = cs.length ? `${cs.length} ${cs.length === 1 ? 'taglio' : 'tagli'} · ${fmt(tot)} in meno` : 'Nessun taglio';
+  $('#ctInT').textContent = state.cutIn != null ? fmt(state.cutIn) : '–'; $('#ctOutT').textContent = state.cutOut != null ? fmt(state.cutOut) : '–';
+  $('#ctAdd').disabled = state.cutIn == null || state.cutOut == null || Math.abs(state.cutOut - state.cutIn) < .3;
+  const box = $('#ctList'), key = JSON.stringify(cs); if (box._k !== key) { box._k = key;
+    box.innerHTML = cs.length ? cs.map(c => `<div class="ct" data-id="${c.id}"><button class="mk-t ct-r" data-go="${c.s}" title="Doppio clic per cambiare i tempi">${fmt(c.s)} – ${fmt(c.e)}</button>
+      <span class="ct-d">−${num(c.e - c.s, 1)} s</span><button class="ib sm" data-del="${c.id}" title="Elimina">${ICON.x}</button></div>`).join('')
+      : '<div class="lib-empty">Nessun taglio. Premi <kbd>I</kbd> all\'inizio della parte da saltare e <kbd>O</kbd> alla fine.</div>'; }
+}
+function toggleCuts() { const m = state.cur; if (!m || !(m.cuts || []).length) return; state.skipCuts = !state.skipCuts; saveSettings(); renderCuts(); renderStats(); tlKey = ''; }
+$('#cutRow').onclick = toggleCuts; $('#qCuts').onclick = toggleCuts;
+$('#ctIn').onclick = () => cutMark('in'); $('#ctOut').onclick = () => { state.cutOut = curT(); renderCuts(); tlKey = ''; };
+$('#ctAdd').onclick = cutAdd;
+$('#ctList').addEventListener('click', async e => {
+  const g = e.target.closest('[data-go]'); if (g) return seekTo(Math.max(0, +g.dataset.go - 2));
+  const d = e.target.closest('[data-del]'); if (!d || !state.cur) return;
+  const r = await post('api/cuts/delete', { id: state.cur.id, cid: d.dataset.del }); state.cur.cuts = r.cuts; renderCuts(); renderStats(); tlKey = '';
+});
+$('#ctList').addEventListener('dblclick', async e => {
+  const b = e.target.closest('.ct-r'); if (!b || !state.cur) return; const c = state.cur.cuts.find(x => x.id === b.closest('.ct').dataset.id); if (!c) return;
+  const v = await dialog({ title: 'Tempi del taglio', text: 'Inizio e fine, per esempio 1:30 - 2:05', input: { value: `${fmt(c.s)} - ${fmt(c.e)}` }, ok: 'Salva' }); if (!v) return;
+  const [a, z] = v.split(/\s*[-–—]\s*/).map(parseT); if (a == null || z == null || z - a < .3) return toast('Tempi non validi', 'Scrivi inizio e fine come 1:30 - 2:05', 'err');
+  const r = await post('api/cuts/update', { id: state.cur.id, cid: c.id, s: a, e: z }); state.cur.cuts = r.cuts; renderCuts(); renderStats(); tlKey = '';
+});
+
+/* ---------- impostazioni (pagina a parte, come su YouTube) ---------- */
+function toggleSettings(on) {
+  const el = $('#settings'); on = on ?? el.hidden; if (on === !el.hidden) return;
+  if (on) { el.hidden = false; el.getAnimations().forEach(a => a.cancel()); if (!reduce) el.animate([{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none' }], { duration: 380, easing: 'cubic-bezier(.16,1,.3,1)' }); segInd(); renderStats(); }
+  else if (reduce) el.hidden = true; else el.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateY(10px)' }], { duration: 200, easing: 'ease-in' }).finished.then(() => { el.hidden = true; });
+  $('#setBtn').classList.toggle('on', on);
+}
+$('#setBtn').onclick = () => toggleSettings(); $('#setBack').onclick = () => toggleSettings(false);
+const fitSet = () => document.documentElement.style.setProperty('--hdh', document.querySelector('header').offsetHeight + 'px');
+addEventListener('resize', fitSet); fitSet();
+async function loadPrefs() {
+  try { const p = await api('api/prefs'); $('#prefAuto').classList.toggle('on', !!p.autotranscribe); $('#prefAuto').setAttribute('aria-checked', !!p.autotranscribe); $('#prefLang').value = p.language; } catch {}
+}
+$('#prefAutoRow').onclick = async () => { const on = !$('#prefAuto').classList.contains('on'); $('#prefAuto').classList.toggle('on', on); $('#prefAuto').setAttribute('aria-checked', on); try { await post('api/prefs', { autotranscribe: on }); } catch {} };
+$('#prefLang').onchange = e => post('api/prefs', { language: e.target.value }).catch(() => {});
+
 /* ---------- keyboard ---------- */
 addEventListener('keydown', e => {
   if (e.target.matches('input:not([type=range]),select,textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
+  if (k === 'escape' && !$('#settings').hidden) { toggleSettings(false); return; }
   if (k === 'escape' && isMob()) { setSide('l', false); setSide('r', false); return; }
   if (k === 'l') return setSide('l', !sideOpen('l'));
   if (k === 'p') return setSide('r', !sideOpen('r'));
   if (!state.cur) return;
   const map = { ' ': () => togglePlay(true), k: () => togglePlay(true), arrowright: () => seekBy(10), arrowleft: () => seekBy(-10), arrowup: () => volBy(.05), arrowdown: () => volBy(-.05),
-    m: () => $('#muteBtn').click(), f: toggleFs, s: toggleSkip, ']': () => setSpeed(state.speed + .25), '[': () => setSpeed(state.speed - .25) };
+    m: () => $('#muteBtn').click(), f: toggleFs, s: toggleSkip, t: toggleCuts, b: () => addMarker(), i: () => cutMark('in'), o: () => cutMark('out'), ']': () => setSpeed(state.speed + .25), '[': () => setSpeed(state.speed - .25) };
   if (map[k]) { e.preventDefault(); map[k](); }
 });
 
@@ -1054,13 +1530,14 @@ const TOURS = {
     { el: ['#dlForm'], t: 'Incolla un link o cerca', d: 'Metti qui il link della lezione (anche più di uno) e vedi subito l’anteprima, oppure scrivi il titolo per cercarla su YouTube.' },
     { el: ['#importBtn'], t: 'Hai già il file?', d: 'Caricalo da qui oppure trascinalo nella finestra.' },
     { el: ['#left .side-in', '#tglL'], t: 'La tua libreria', d: 'I video finiscono qui. Passa sopra a uno per l’anteprima, archiviarlo o eliminarlo.' },
-    { el: ['#right .side-in', '#tglR'], t: 'I controlli', d: 'Velocità, salto delle pause ed esportazione in MP4.' },
+    { el: ['#right .side-in', '#tglR'], t: 'Trascrizione', d: 'Qui scorre la trascrizione della lezione, insieme a segnaposti e tagli.' },
   ],
   video: [
     { el: ['#seek'], t: 'Le pause, in chiaro', d: 'Sulla barra vedi dove sono le pause. Passaci sopra per l’anteprima del fotogramma.' },
-    { el: ['#skipRow', '#tglR'], t: 'Salta i silenzi', d: 'Attivalo e le pause vengono saltate mentre guardi. Tasto S.' },
-    { el: ['#chips', '#tglR'], t: 'Più veloce', d: 'Fino a 3× con la voce naturale. Tasti [ e ].' },
-    { el: ['#exportBtn', '#tglR'], t: 'Portalo con te', d: 'Esporta un MP4 già tagliato e accelerato per telefono o tablet.' },
+    { el: ['#qSkip'], t: 'Salta i silenzi', d: 'Attivalo e le pause vengono saltate mentre guardi. Tasto S.' },
+    { el: ['#qSpeed'], t: 'Più veloce', d: 'Fino a 3× con la voce naturale. Tasti [ e ].' },
+    { el: ['#tglR'], t: 'Trascrizione e segnaposti', d: 'La trascrizione scorre come i testi di Spotify, con le formule in LaTeX. Qui trovi anche segnaposti e tagli.' },
+    { el: ['#setBtn'], t: 'Impostazioni', d: 'Tempo risparmiato, lingua della trascrizione, qualità ed esportazione in MP4.' },
   ],
 };
 const tour = { name: null, i: 0, raf: 0, queue: [] };
@@ -1122,8 +1599,9 @@ if (location.pathname === '/' || location.pathname === '/index.html') $('#homeBt
 (async () => {
   setSpeed(state.speed); syncAdv(); applyVol(); syncPlay(); fitMob();
   try { const st = await api('api/status');
+    state.whisper = !!st.whisper;
     if (!st.ffmpeg || !st.ytdlp) $('#status').textContent = !st.ffmpeg ? 'ffmpeg mancante' : 'yt-dlp mancante'; } catch {}
-  await firstPoll;
+  await firstPoll; loadPrefs(); setTab(tabIn());
   await loadLib();
   const first = state.lib.find(m => !m.archived);
   if (first) await open(first.id); else window.BGFX && BGFX.mode('shapes');
