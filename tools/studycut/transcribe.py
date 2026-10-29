@@ -11,23 +11,85 @@ THREADS = int(os.environ.get("STUDYCUT_WHISPER_THREADS", "0"))      # 0 = tutti 
 BEAM = int(os.environ.get("STUDYCUT_WHISPER_BEAM", "10"))
 
 # parole che Whisper sbaglia di piu' in una lezione di matematica: nel prompt iniziale lo "orientano"
+# prompt iniziale corto (solo lo stile: formule dette a voce, punteggiatura). Il vocabolario sta in HOTWORDS.
+# Attenzione al budget: prompt + hotwords + testo devono stare nei 448 token di una finestra di Whisper.
 PROMPTS = {
-    "it": ("Lezione universitaria di matematica: algebra lineare, geometria e analisi. Matrice, determinante, autovalori, autovettori, "
-           "autospazio, polinomio caratteristico, spazio vettoriale, sottospazio, combinazione lineare, base, dimensione, rango, nucleo, "
-           "immagine, applicazione lineare, isomorfismo, ortogonale, prodotto scalare, derivata, integrale, limite, serie, convergenza, "
-           "successione, funzione continua, teorema, dimostrazione, ipotesi, tesi, per ogni, esiste, se e solo se. "
-           "Si ha x al quadrato più 3 x meno 5 uguale a 0, f di x, lambda, epsilon, delta, R n."),
-    "en": ("University mathematics lecture: linear algebra, geometry and calculus. Matrix, determinant, eigenvalues, eigenvectors, vector space, "
-           "subspace, basis, dimension, rank, kernel, image, linear map, isomorphism, orthogonal, derivative, integral, limit, series, "
-           "convergence, theorem, proof, for all, there exists, if and only if. We have x squared plus 3 x minus 5 equals 0, f of x."),
+    "it": "Lezione universitaria di matematica. Si ha x al quadrato più 3 x meno 5 uguale a 0, f di x, una matrice n per n, lambda.",
+    "en": "University mathematics lecture. We have x squared plus 3 x minus 5 equals 0, f of x, an n by n matrix, lambda.",
 }
-# vocabolario ripetuto in OGNI finestra da 30 s (il prompt iniziale vale solo per la prima)
+# vocabolario ripetuto in OGNI finestra da 30 s (il prompt iniziale vale solo per la prima). Budget:
+# ~110 token (vedi PROMPTS): prima le parole del corso scritte dall'utente nelle impostazioni, poi queste, in ordine di importanza
 HOTWORDS = {
-    "it": "matrice determinante autovalori autovettori autospazio polinomio caratteristico sottospazio rango nucleo immagine "
-          "applicazione lineare isomorfismo ortogonale derivata integrale limite serie successione teorema dimostrazione lambda epsilon",
-    "en": "matrix determinant eigenvalues eigenvectors subspace rank kernel image linear map isomorphism orthogonal derivative "
-          "integral limit series theorem proof lambda epsilon",
+    "it": ("autovalori autovettori autospazio matrice determinante rango nucleo immagine sottospazio isomorfismo endomorfismo "
+           "diagonalizzabile polinomio caratteristico molteplicità algebrica geometrica base canonica combinazione lineare "
+           "linearmente indipendenti applicazione lineare trasposta inversa ortogonale ortonormale prodotto scalare prodotto vettoriale "
+           "Gram-Schmidt Rouché-Capelli Cramer Binet Laplace Gauss Jordan spazio vettoriale iperpiano retta piano parametrico "
+           "cartesiano coordinate omogenee conica quadrica ellisse iperbole parabola fascio derivata integrale limite serie successione "
+           "convergenza continuità derivabile primitiva Taylor Cauchy Lagrange Rolle Weierstrass Bolzano de l'Hôpital Riemann "
+           "asintoto monotona estremo superiore infinitesimo o piccolo O grande epsilon delta lambda teorema dimostrazione lemma corollario"),
+    "en": ("eigenvalues eigenvectors eigenspace matrix determinant rank kernel image subspace isomorphism diagonalizable characteristic "
+           "polynomial basis linear combination linearly independent linear map transpose inverse orthogonal orthonormal inner product "
+           "Gram-Schmidt Cramer Laplace Gauss Jordan hyperplane conic quadric derivative integral limit series sequence convergence "
+           "continuity Taylor Cauchy Lagrange Rolle Weierstrass Riemann asymptote supremum infinitesimal big O epsilon delta lambda theorem proof lemma"),
 }
+
+
+def hotwords(lang, extra=""):
+    """Parole del corso dell'utente + vocabolario di base, tagliate al limite di Whisper."""
+    words = [w for w in re.split(r"[\s,;]+", (extra or "") + " " + HOTWORDS.get(lang or "it", HOTWORDS["it"])) if w]
+    seen, out = set(), []
+    for w in words:
+        if w.lower() not in seen:
+            seen.add(w.lower()); out.append(w)
+    txt = ""
+    for w in out:                         # ~3,7 caratteri per token: ~110 token, lascia spazio al testo
+        if len(txt) + len(w) + 1 > 400:
+            break
+        txt += " " + w
+    return txt.strip()
+
+
+# errori tipici di Whisper sui termini del corso: (parole sentite) -> parola giusta
+FIXES = [(tuple(k.split()), v) for k, v in (
+    ("auto valori", "autovalori"), ("auto valore", "autovalore"), ("auto vettori", "autovettori"), ("auto vettore", "autovettore"),
+    ("auto spazio", "autospazio"), ("auto spazi", "autospazi"), ("sotto spazio", "sottospazio"), ("sotto spazi", "sottospazi"),
+    ("sotto insieme", "sottoinsieme"), ("sotto insiemi", "sottoinsiemi"), ("sotto matrice", "sottomatrice"), ("sotto successione", "sottosuccessione"),
+    ("iper piano", "iperpiano"), ("iper piani", "iperpiani"), ("semi retta", "semiretta"), ("semi piano", "semipiano"),
+    ("endo morfismo", "endomorfismo"), ("iso morfismo", "isomorfismo"), ("omo morfismo", "omomorfismo"), ("auto morfismo", "automorfismo"),
+    ("contro immagine", "controimmagine"), ("co dominio", "codominio"), ("in iettiva", "iniettiva"), ("in iettività", "iniettività"),
+    ("sur iettiva", "suriettiva"), ("bi iettiva", "biiettiva"), ("orto normale", "ortonormale"), ("orto normali", "ortonormali"),
+    ("diagonalizza bile", "diagonalizzabile"), ("deriva bile", "derivabile"), ("integra bile", "integrabile"), ("infinite simo", "infinitesimo"),
+    ("rusce capelli", "Rouché-Capelli"), ("ruscé capelli", "Rouché-Capelli"), ("rouche capelli", "Rouché-Capelli"), ("rouché capelli", "Rouché-Capelli"),
+    ("gram smith", "Gram-Schmidt"), ("gram schmidt", "Gram-Schmidt"), ("gram-smith", "Gram-Schmidt"),
+    ("de lopital", "de l'Hôpital"), ("de l'hopital", "de l'Hôpital"), ("lopital", "l'Hôpital"), ("l'opital", "l'Hôpital"), ("l'hopital", "l'Hôpital"),
+    ("vaierstrass", "Weierstrass"), ("vaierstrasse", "Weierstrass"), ("weierstrasse", "Weierstrass"), ("cosci", "Cauchy"), ("coshi", "Cauchy"),
+    ("cauchi", "Cauchy"), ("riman", "Riemann"), ("rieman", "Riemann"), ("laibniz", "Leibniz"), ("leibnitz", "Leibniz"), ("giordan", "Jordan"),
+    ("gaus", "Gauss"), ("bine", "Binet"), ("laplas", "Laplace"), ("lagrangia", "Lagrange"), ("teilor", "Taylor"), ("mac laurin", "MacLaurin"),
+    ("mclaurin", "MacLaurin"), ("silvester", "Sylvester"), ("ermite", "Hermite"), ("spam", "span"),
+)]
+
+
+def fix_terms(words):
+    """Corregge sulle parole (tenendo i tempi) i termini che Whisper spezza o storpia."""
+    out, i, n = [], 0, len(words)
+    low = [re.sub(r"[^\w'\-]", "", w["w"].strip().lower()) for w in words]
+    while i < n:
+        hit = None
+        for ph, rep in FIXES:
+            k = len(ph)
+            if tuple(low[i:i + k]) == ph and (hit is None or k > hit[0]):
+                hit = (k, rep)
+        if hit:
+            k, rep = hit
+            tail = re.search(r"[.,;:!?]+$", words[i + k - 1]["w"].strip())
+            lead = " " if words[i]["w"].startswith(" ") else ""
+            out.append({"w": lead + rep + (tail[0] if tail else ""), "s": words[i]["s"], "e": words[i + k - 1]["e"]})
+            i += k
+        else:
+            out.append(words[i]); i += 1
+    return out
+
+
 # frasi che Whisper "inventa" sui silenzi: scartate nel recupero dei pezzi mancanti
 JUNK = re.compile(r"amara\.org|sottotitol|grazie (a tutti )?per (la visione|l'ascolto|aver guardato)|iscrivet|thanks for watching|subtitles by", re.I)
 _model, _lock = None, threading.Lock()
@@ -80,15 +142,15 @@ def load_audio(ffmpeg, src):
 
 
 def to_units(words):
-    return mathspeech.convert([{"w": w.word, "s": round(w.start, 3), "e": round(w.end, 3)} for w in words if w.word.strip()])
+    return mathspeech.convert(fix_terms([{"w": w.word, "s": round(w.start, 3), "e": round(w.end, 3)} for w in words if w.word.strip()]))
 
 
-def _opts(lang, **kw):
+def _opts(lang, vocab="", **kw):
     o = dict(language=lang, task="transcribe", beam_size=BEAM, best_of=5, patience=1.2,
              temperature=[0.0, 0.2, 0.4, 0.6, 0.8], word_timestamps=True,
              # senza contesto della finestra precedente Whisper non "salta" pezzi di frase per inseguire il testo gia' scritto;
              # il vocabolario del corso resta grazie a hotwords, ripetuto in ogni finestra
-             condition_on_previous_text=False, hotwords=HOTWORDS.get(lang or "it", HOTWORDS["it"]),
+             condition_on_previous_text=False, hotwords=hotwords(lang, vocab),
              no_speech_threshold=0.85, compression_ratio_threshold=2.4, log_prob_threshold=-1.0,
              repetition_penalty=1.05, no_repeat_ngram_size=0)
     o.update(kw)
@@ -125,7 +187,7 @@ def _speech_gaps(audio, segs, sr=16000, min_gap=0.8):
     return out
 
 
-def run(ffmpeg, src, language, on_segment, on_progress, alive, duration):
+def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab=""):
     """Trascrive e chiama on_segment(seg) per ogni frase appena pronta. Restituisce (lingua, modello).
     Due passate: la prima con il rilevatore di voce (VAD) tarato largo; la seconda ritrascrive, senza VAD e con
     volume alzato, ogni tratto rimasto scoperto in cui c'e' comunque voce (frasi dette piano, code di frase)."""
@@ -139,7 +201,7 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration):
         model = get_model()
         lang = None if language in (None, "", "auto") else language
         segs, info = model.transcribe(audio, **_opts(
-            lang, initial_prompt=PROMPTS.get(lang or "it", PROMPTS["it"]), vad_filter=True,
+            lang, vocab, initial_prompt=PROMPTS.get(lang or "it", PROMPTS["it"]), vad_filter=True,
             # soglia bassa e margini ampi: meglio passare al modello un po' di silenzio che perdere una frase sussurrata
             vad_parameters={"threshold": 0.2, "neg_threshold": 0.1, "min_speech_duration_ms": 0,
                             "min_silence_duration_ms": 1500, "speech_pad_ms": 800}))
@@ -169,7 +231,7 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration):
                 continue
             clip = np.clip(clip * min(8.0, 0.9 / peak), -1, 1).astype(np.float32)
             off = i0 / 16000
-            sub, _ = model.transcribe(clip, **_opts(lang, vad_filter=False, temperature=[0.0, 0.2, 0.4], no_speech_threshold=0.9))
+            sub, _ = model.transcribe(clip, **_opts(lang, vocab, vad_filter=False, temperature=[0.0, 0.2, 0.4], no_speech_threshold=0.9))
             for s in sub:
                 if JUNK.search(s.text or "") or s.avg_logprob < -1.3:
                     continue

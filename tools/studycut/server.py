@@ -462,7 +462,7 @@ def job_download(jid, sp, url, quality):
 
 
 # ---------------------------------------------------------------- preferenze e trascrizione
-PREF_DEFAULT = {"autotranscribe": True, "language": "it"}
+PREF_DEFAULT = {"autotranscribe": True, "language": "it", "vocab": ""}
 
 
 def load_prefs(lib):
@@ -534,7 +534,7 @@ def job_transcribe(jid, sp, vid):
         upd(jid, progress=p, message=msg)
 
     try:
-        lang, model = transcribe.run(FFMPEG, src, prefs["language"], on_seg, on_prog, lambda: mpath(lib, vid).exists(), dur)
+        lang, model = transcribe.run(FFMPEG, src, prefs["language"], on_seg, on_prog, lambda: mpath(lib, vid).exists(), dur, prefs.get("vocab", ""))
         # le frasi recuperate nella seconda passata arrivano in fondo: rimettile in ordine di tempo
         t["segments"].sort(key=lambda g: g["s"])
         for k, g in enumerate(t["segments"]):
@@ -1344,6 +1344,8 @@ class H(BaseHTTPRequestHandler):
                 p["autotranscribe"] = bool(data["autotranscribe"])
             if data.get("language") in ("it", "en", "auto"):
                 p["language"] = data["language"]
+            if isinstance(data.get("vocab"), str):        # parole del corso per la trascrizione
+                p["vocab"] = " ".join(data["vocab"].split())[:600]
             save_prefs(lib, p)
             return self.send_json(p)
         if parts == ["api", "rename-many"]:  # "Analisi 1, 2, 3..." sui video scelti, nell'ordine dato

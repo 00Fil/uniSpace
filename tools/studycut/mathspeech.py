@@ -20,7 +20,7 @@ LETTER_NAMES = {"ics": "x", "ipsilon": "y", "effe": "f", "gi": "g", "acca": "h",
 SETS = {"r": r"\mathbb{R}", "n": r"\mathbb{N}", "z": r"\mathbb{Z}", "q": r"\mathbb{Q}", "c": r"\mathbb{C}",
         "erre": r"\mathbb{R}", "enne": r"\mathbb{N}", "zeta": r"\mathbb{Z}"}
 FUNCS = {"seno": r"\sin", "coseno": r"\cos", "tangente": r"\tan", "logaritmo": r"\ln", "esponenziale": r"\exp", "arcotangente": r"\arctan",
-         "determinante": r"\det", "traccia": r"\operatorname{tr}", "rango": r"\operatorname{rk}", "dimensione": r"\dim",
+         "log": r"\log", "ln": r"\ln", "determinante": r"\det", "traccia": r"\operatorname{tr}", "rango": r"\operatorname{rk}", "dimensione": r"\dim",
          "nucleo": r"\ker", "immagine": r"\operatorname{Im}", "span": r"\operatorname{span}", "segno": r"\operatorname{sgn}"}
 # relazioni e connettivi: (parole) -> latex
 RELS = [
@@ -43,8 +43,24 @@ AMBIG = {"a", "e", "i", "o", "u", "è", "ad", "ed"}
 WORD_CLEAN = re.compile(r"[^\w'^_=+\-*/<>().,|]", re.U)
 
 
+SUP = str.maketrans({"⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+                     "ⁿ": "n", "ᵀ": "T", "⁻": "-", "⁺": "+"})
+SUB = str.maketrans({"₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
+                     "ₙ": "n", "ᵢ": "i", "ⱼ": "j", "ₖ": "k", "ₘ": "m"})
+
+
+def norm_sym(w):
+    """Simboli scritti da Whisper in Unicode -> forma ASCII che il parser capisce (n³ -> n^3, × -> x, ≤ -> <=)."""
+    w = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹ⁿᵀ⁻⁺]+", lambda m: "^" + m[0].translate(SUP), w)
+    w = re.sub(r"[₀₁₂₃₄₅₆₇₈₉ₙᵢⱼₖₘ]+", lambda m: "_" + m[0].translate(SUB), w)
+    for a, b in (("×", "x"), ("·", "*"), ("⋅", "*"), ("≤", "<="), ("≥", ">="), ("≠", "!="), ("→", "->"), ("−", "-"), ("–", "-")):
+        w = w.replace(a, b)
+    return w
+
+
 def core(w):
     c = WORD_CLEAN.sub("", w.strip()).lower()
+    c = re.sub(r"(?<=\w|\))[.,;:!?]+$", "", c) if len(c) > 1 else c
     if not VERB.match(c):  # le parole normali perdono la punteggiatura; i token tipo x^2 o f(x) restano interi
         c = re.sub(r"[^\w']", "", c, flags=re.U)
         c = re.sub(r"^(l|dell|all|nell|sull|un|quest|quell)['’]", "", c) if len(c) > 3 else c
@@ -187,7 +203,7 @@ class Parser:
                 if c in ("fratto", "diviso", "/"):
                     out = rf"\frac{{{out}}}{{{f}}}" if self.simple(out) and self.simple(f) else f"{out}/{f}"
                 else:
-                    out = rf"{out} \cdot {f}" if (out[-1].isdigit() and f[0].isdigit()) or "\\frac" in out or "\\frac" in f else f"{out}{f}" if f[0].isalpha() or f[0] == "\\" else f"{out} \\cdot {f}"
+                    out = rf"{out} \cdot {f}" if (out[-1].isdigit() and f[0].isdigit()) or (re.search(r"[A-Za-z]$", out) and f[0] == out[-1]) or "\\frac" in out or "\\frac" in f else f"{out}{f}" if f[0].isalpha() or f[0] == "\\" else f"{out} \\cdot {f}"
                 self.strong = True
             else:
                 # prodotto implicito:  3 x,  2 pi greco,  x y
@@ -218,6 +234,10 @@ class Parser:
             n = self.phrase(("al", "cubo"))
             if n:
                 self.i += n; a = self.pow(a, "3"); continue
+            # "n cubo", "x quadro": solo dopo una lettera, un numero o una parentesi
+            if self.at() in ("cubo", "quadro", "quadrato") and re.fullmatch(r"[A-Za-z0-9]|\\[a-z]+|.*\)", a):
+                e = "3" if self.at() == "cubo" else "2"
+                self.i += 1; a = self.pow(a, e); continue
             if self.at() in ("alla", "all'", "alle") and self.at(1) is not None:
                 save = self.i
                 self.i += 1
@@ -341,8 +361,10 @@ class Parser:
             return r"\emptyset"
         # simboli tipo x^2, f(x), 2x+3 detti da Whisper gia' in forma scritta
         if VERB.match(c) and MATCHCHECK(c):
+            r = self.raw[self.i] if hasattr(self, "raw") and self.i < len(self.raw) else c
+            r = re.sub(r"[.,;:!?]+$", "", WORD_CLEAN.sub("", r.strip()))
             self.i += 1; self.strong = True
-            return verb_tex(c)
+            return verb_tex(r if r.lower() == c else c)
         if c == "pi" and self.at(1) == "greco":
             self.i += 2; self.strong = True
             return r"\pi"
@@ -382,6 +404,27 @@ class Parser:
 
     def construct(self):
         c = self.at()
+        # O grande / o piccolo di X  (complessita', ordini di infinito)
+        for ph, sym in ((("o", "grande", "di"), "O"), (("o", "piccolo", "di"), "o"), (("o", "di"), None)):
+            n = self.phrase(ph)
+            if n:
+                save, upper = self.i, self.raw_upper(self.i)
+                self.i += n
+                a = self.term()
+                if a is not None and (sym or upper or re.search(r"\^|\\log|\\ln", a)):
+                    self.strong = True
+                    return f"{sym or 'O'}({a})"
+                self.i = save
+                break
+        # log n,  n log n
+        if c in ("log", "ln") and self.at(1) is not None and self.at(1) != "di":
+            save = self.i
+            self.i += 1
+            a = self.atom_simple()
+            if a is not None:
+                self.strong = True
+                return rf"\{c} {a}"
+            self.i = save
         # radice quadrata di X  /  radice n-esima di X
         for ph, idx in ((("radice", "quadrata", "di"), "2"), (("radice", "cubica", "di"), "3"), (("radice", "di"), "2")):
             n = self.phrase(ph)
@@ -428,12 +471,16 @@ class Parser:
             self.strong = True
             return f"e^{{{e}}}"
         # insiemi: R, N, Z, Q, C (solo dopo "in", "a", "su")
-        if c in SETS and self.i > 0 and self.t[self.i - 1] in ("in", "a", "ad", "su", "da", "di", "tra") and (len(c) > 1 or self.raw_upper(self.i)):
+        before = self.t[self.i - 1] if self.i > 0 else getattr(self, "prev", "")
+        nxt = self.at(1) or ""
+        dimlike = nxt.isdigit() or (num_word(nxt) is not None and nxt not in ("un", "una")) or nxt in ("n", "m", "k", "enne", "emme", "cappa")
+        if c in SETS and (len(c) > 1 or self.raw_upper(self.i)) and (before in ("in", "a", "ad", "su", "da", "di", "tra", "spazio", "di") or (c in ("r", "erre", "c") and dimlike)):
             self.i += 1
             s = SETS[c]
             e = self.at()
-            if e is not None and (e.isdigit() or num_word(e) is not None or (len(e) == 1 and e in "nmk")) and e not in ("e", "a", "i", "o", "u"):
+            if e is not None and (e.isdigit() or num_word(e) is not None or (len(e) == 1 and e in "nmk") or e in ("enne", "emme", "cappa")) and e not in ("e", "a", "i", "o", "u", "un", "una"):
                 self.i += 1
+                e = LETTER_NAMES.get(e, e)
                 s = f"{s}^{{{num_word(e) if num_word(e) is not None else e}}}"
             self.strong = True
             return s
@@ -453,6 +500,8 @@ def MATCHCHECK(c):
 
 def verb_tex(c):
     s = c.rstrip(".,")
+    s = re.sub(r"^([RNZQC])(?=\^)", lambda m: r"\mathbb{" + m[1] + "}", s)       # R^n
+    s = re.sub(r"(?<=[A-Z])\^T\b", r"^\\top", s)                                  # A^T
     s = s.replace("<=", r"\le ").replace(">=", r"\ge ").replace("!=", r"\neq ").replace("->", r"\to ").replace("*", r"\cdot ")
     s = re.sub(r"\^(-?\w+)", lambda m: "^{" + m[1] + "}", s)
     s = re.sub(r"_(\w+)", lambda m: "_{" + m[1] + "}", s)
@@ -553,22 +602,65 @@ def special(toks, i, raw):
     return None
 
 
+MATCTX = {"matrice", "matrici", "matrix", "ordine", "dimensione", "dimensioni", "formato", "blocco", "blocchi", "tabella",
+          "quadrata", "quadrate", "rettangolare", "rettangolari", "minore", "minori", "sottomatrice", "sottomatrici", "taglia"}
+DIM_NAMES = {"enne": "n", "emme": "m", "cappa": "k", "erre": "r", "esse": "s", "pi": "p", "qu": "q", "ti": "t"}
+
+
+def dim_tok(c):
+    if c is None:
+        return None
+    if c.isdigit():
+        return c
+    n = num_word(c)
+    if n is not None:
+        return str(n)
+    if len(c) == 1 and c in "bcdfghjklmnpqrstvwyz":
+        return c
+    return DIM_NAMES.get(c)
+
+
+def dims(toks, i):
+    """Dimensioni di una matrice dette a voce o scritte: 'n per n', 'm x n', 'nxn', 'tre per quattro'. -> (latex, parole) o None."""
+    ctx = any(t in MATCTX for t in toks[max(0, i - 4):i])
+    m = re.fullmatch(r"([a-z]|\d+)x([a-z]|\d+)", toks[i] or "")
+    if m and (ctx or (m[1].isalpha() and m[2].isalpha())):
+        return rf"{m[1]} \times {m[2]}", 1
+    a = dim_tok(toks[i])
+    if a is None:
+        return None
+    parts, k = [a], i + 1
+    while k + 1 < len(toks) and toks[k] in ("per", "x", "*") and dim_tok(toks[k + 1]) is not None:
+        if toks[k] == "per" and not ctx:
+            break
+        parts.append(dim_tok(toks[k + 1])); k += 2
+    if len(parts) < 2:
+        return None
+    if not ctx and not all(p.isalpha() for p in parts):     # "2 x 3" fuori contesto resta un prodotto
+        return None
+    return r" \times ".join(parts), k - i
+
+
 def convert(words):
     """words: [{"w": parola con punteggiatura, "s": inizio, "e": fine}] -> unita' [{"k": "w"|"m", "x", "s", "e", ("p", "src")}]."""
     raw = [w["w"].strip() for w in words]
-    toks = [core(w) for w in raw]
+    sym = [norm_sym(w) for w in raw]
+    toks = [core(w) for w in sym]
     units, i, n = [], 0, len(toks)
     while i < n:
         if not toks[i]:
             i += 1
             continue
         got = None
-        sp = special(toks, i, raw) if toks[i] in ("limite", "sommatoria", "somma", "integrale", "derivata") else None
-        if sp:
+        sp = special(toks, i, sym) if toks[i] in ("limite", "sommatoria", "somma", "integrale", "derivata") else None
+        dm = dims(toks, i)
+        if dm:
+            got = (dm[0], dm[1], True)
+        elif sp:
             got = (sp[0], sp[1], True)
         else:
             p = Parser(toks[i:])
-            p.raw = raw[i:]
+            p.raw = sym[i:]
             p.amb = False
             p.prev = toks[i - 1] if i else ""
             tex = p.relation()

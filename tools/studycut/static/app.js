@@ -1527,10 +1527,12 @@ $('#setBtn').onclick = () => toggleSettings(); $('#setBack').onclick = () => tog
 const fitSet = () => document.documentElement.style.setProperty('--hdh', document.querySelector('header').offsetHeight + 'px');
 addEventListener('resize', fitSet); fitSet();
 async function loadPrefs() {
-  try { const p = await api('api/prefs'); $('#prefAuto').classList.toggle('on', !!p.autotranscribe); $('#prefAuto').setAttribute('aria-checked', !!p.autotranscribe); $('#prefLang').value = p.language; } catch {}
+  try { const p = await api('api/prefs'); $('#prefAuto').classList.toggle('on', !!p.autotranscribe); $('#prefAuto').setAttribute('aria-checked', !!p.autotranscribe); $('#prefLang').value = p.language; $('#prefVocab').value = p.vocab || ''; } catch {}
 }
 $('#prefAutoRow').onclick = async () => { const on = !$('#prefAuto').classList.contains('on'); $('#prefAuto').classList.toggle('on', on); $('#prefAuto').setAttribute('aria-checked', on); try { await post('api/prefs', { autotranscribe: on }); } catch {} };
 $('#prefLang').onchange = e => post('api/prefs', { language: e.target.value }).catch(() => {});
+let vocabT = 0;
+$('#prefVocab').oninput = e => { clearTimeout(vocabT); vocabT = setTimeout(() => post('api/prefs', { vocab: e.target.value }).catch(() => {}), 600); };
 
 /* ---------- keyboard ---------- */
 addEventListener('keydown', e => {
