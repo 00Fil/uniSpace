@@ -116,14 +116,30 @@ def load_audio(ffmpeg, src):
     return np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768.0
 
 
+def join_elisions(words):
+    """Whisper spezza le elisioni in due parole ("Nell" + "'esempio", "all" + "'ora"): le riunisce tenendo i tempi."""
+    out = []
+    for w in words:
+        t = w["w"].strip()
+        if out and (t[:1] in "'’" or out[-1]["w"].rstrip()[-1:] in "'’") and re.match(r"^['’]?\w", t):
+            out[-1] = {"w": out[-1]["w"].rstrip() + t, "s": out[-1]["s"], "e": w["e"]}
+        else:
+            out.append(w)
+    return out
+
+
 def to_units(words):
-    return mathspeech.convert(fix_terms([{"w": w.word, "s": round(w.start, 3), "e": round(w.end, 3)} for w in words if w.word.strip()]))
+    return mathspeech.convert(fix_terms(join_elisions([{"w": w.word, "s": round(w.start, 3), "e": round(w.end, 3)} for w in words if w.word.strip()])))
 
 
-def _opts(lang, vocab="", **kw):
+def _opts(lang, vocab="", seen=(), **kw):
     """Impostazioni collaudate: contesto della frase precedente attivo (coerenza del testo), niente hotwords
-    (con liste di parole lunghe Whisper inserisce termini a caso), filtri anti-allucinazione di default."""
+    (con liste di parole lunghe Whisper inserisce termini a caso), filtri anti-allucinazione di default.
+    seen: parole lette sui fotogrammi della lezione (lavagna, slide). Whisper tiene solo la coda del prompt,
+    quindi l'ordine e': prompt del corso, parole viste, parole dello studente (le piu' importanti in fondo)."""
     prompt = PROMPTS.get(lang or "it", PROMPTS["it"])
+    if seen:
+        prompt += " Alla lavagna: " + ", ".join(list(seen)[:30]) + "."
     if vocab.strip():
         prompt += " Termini del corso: " + vocab.strip()[:300] + "."
     o = dict(language=lang, task="transcribe", beam_size=BEAM, best_of=5, patience=1.0,
@@ -166,24 +182,51 @@ def _speech_gaps(audio, segs, sr=16000, min_gap=1.5):
     return out
 
 
-def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab=""):
-    """Trascrive e chiama on_segment(seg) per ogni frase appena pronta. Restituisce (lingua, modello).
-    Due passate: la prima normale; la seconda ritrascrive i tratti rimasti scoperti in cui il VAD sente voce,
-    tenendo solo le frasi di cui il modello e' molto sicuro."""
+FRAMES_ON = os.environ.get("STUDYCUT_FRAMES", "1") != "0"
+
+
+def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab="", work_dir=None, has_video=True, on_replace=None):
+    """Trascrive e chiama on_segment(seg) per ogni frase appena pronta. Restituisce (lingua, modello, info).
+    1. fotogrammi chiave del video + testo letto sulla lavagna/slide (visual.py): le parole viste orientano Whisper;
+    2. Whisper in due passate: la prima normale, la seconda ritrascrive i tratti rimasti scoperti in cui il VAD
+       sente voce, tenendo solo le frasi di cui il modello e' molto sicuro;
+    3. se e' configurato un modello multimodale (refine.py), ogni tratto viene corretto confrontando audio e
+       fotogrammi e le formule diventano LaTeX controllato con KaTeX; on_replace(frasi, info) riceve il risultato."""
     import numpy as np
     if not have_whisper():
         raise RuntimeError("faster-whisper non installato: esegui  pip install -U faster-whisper")
-    on_progress(0.0, "Preparo l'audio...")
+    info, frames, frames_dir = {"frames": 0}, [], (Path(work_dir) / "frames") if work_dir else None
+    W0, W1 = 0.0, 0.72                                  # parte della barra per Whisper
+    if has_video and FRAMES_ON and frames_dir is not None:
+        import visual
+        on_progress(0.0, "Leggo la lavagna e le slide...")
+        try:
+            frames = visual.extract(ffmpeg, src, frames_dir, duration, alive,
+                                    lambda p: on_progress(0.06 * p, f"Leggo la lavagna e le slide  {int(p * 100)}%"))
+            info["frames"] = len(frames)
+        except Exception as e:
+            if not alive():
+                raise RuntimeError("Interrotta: video eliminato")
+            info["frames_error"] = str(e)[-200:]
+        W0 = 0.06
+    import refine
+    if not refine.available():
+        W1 = 0.97
+    seen = []
+    if frames:
+        import visual
+        seen = visual.vocab(frames)
+    on_progress(W0, "Preparo l'audio...")
     audio = load_audio(ffmpeg, src)
     try:
         on_progress(0.0, "Carico il modello (la prima volta lo scarica)...")
         model = get_model()
         lang = None if language in (None, "", "auto") else language
-        segs, info = model.transcribe(audio, **_opts(
-            lang, vocab, vad_filter=True,
+        segs, winfo = model.transcribe(audio, **_opts(
+            lang, vocab, seen, vad_filter=True,
             # un po' piu' permissivo del default (0.5) per non scartare le frasi dette piano, ma senza esagerare
             vad_parameters={"threshold": 0.35, "min_speech_duration_ms": 200, "min_silence_duration_ms": 1000, "speech_pad_ms": 400}))
-        lang = lang or info.language
+        lang = lang or winfo.language
         n, done = 0, []
         for s in segs:
             if not alive():
@@ -196,14 +239,15 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab="
                 seg = {"id": n, "s": round(s.start, 3), "e": round(s.end, 3), "u": units}
                 on_segment(seg); done.append(seg)
                 n += 1
-            on_progress(min(0.9, 0.9 * s.end / max(duration, 1)), f"Trascrizione  {int(min(0.9, 0.9 * s.end / max(duration, 1)) * 100)}%")
+            f = min(1.0, s.end / max(duration, 1))
+            on_progress(W0 + (W1 - W0) * 0.93 * f, f"Trascrizione dell'audio  {int(f * 100)}%")
 
         # ---- seconda passata: recupero dei pezzi persi
         gaps = _speech_gaps(audio, done)
         for k, (a, b) in enumerate(gaps):
             if not alive():
                 raise RuntimeError("Interrotta: video eliminato")
-            on_progress(0.9 + 0.09 * k / max(len(gaps), 1), f"Recupero le parti dette piano  {k + 1}/{len(gaps)}")
+            on_progress(W0 + (W1 - W0) * (0.93 + 0.07 * k / max(len(gaps), 1)), f"Recupero le parti dette piano  {k + 1}/{len(gaps)}")
             i0, i1 = max(0, int((a - 0.4) * 16000)), min(len(audio), int((b + 0.4) * 16000))
             clip = audio[i0:i1]
             peak = float(np.abs(clip).max()) if len(clip) else 0
@@ -211,7 +255,7 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab="
                 continue
             clip = np.clip(clip * min(3.0, 0.9 / peak), -1, 1).astype(np.float32)
             off = i0 / 16000
-            sub, _ = model.transcribe(clip, **_opts(lang, vocab, vad_filter=True, condition_on_previous_text=False,
+            sub, _ = model.transcribe(clip, **_opts(lang, vocab, seen, vad_filter=True, condition_on_previous_text=False,
                                                     vad_parameters={"threshold": 0.3, "speech_pad_ms": 300}, temperature=[0.0, 0.2]))
             for s in sub:
                 # solo frasi di cui il modello e' davvero sicuro: meglio un pezzo in meno che parole inventate
@@ -227,39 +271,54 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab="
                     seg = {"id": n, "s": round(ws[0].start, 3), "e": round(ws[-1].end, 3), "u": units}
                     on_segment(seg); done.append(seg)
                     n += 1
-        return lang, MODEL
     finally:
         del audio
+
+    # ---- terza fase: correzione incrociando audio e fotogrammi
+    done.sort(key=lambda g: g["s"])
+    for k, g in enumerate(done):
+        g["id"] = k
+    if refine.available() and done and on_replace:
+        on_progress(W1, "Correggo con audio e video...")
+        try:
+            fixed, rinfo = refine.run(done, frames, frames_dir, vocab, lang,
+                                      lambda p, msg: on_progress(W1 + (0.99 - W1) * p, msg), alive)
+            info["refine"] = rinfo
+            on_replace(fixed, info)
+        except Exception as e:
+            if not alive():
+                raise RuntimeError("Interrotta: video eliminato")
+            info["refine_error"] = str(e)[-300:]
+    return lang, MODEL, info
 
 
 # ---------------------------------------------------------------- testo <-> unita' (modifica a mano ed esportazione)
 def seg_text(seg):
     """Frase come testo con le formule fra $...$."""
-    out = []
-    for u in seg["u"]:
-        out.append(f"${u['x']}${u.get('p', '')}" if u["k"] == "m" else u["x"])
-    return " ".join(out)
+    import refine
+    return refine.seg_text(seg)
 
 
-def parse_text(text, s, e):
-    """Testo con $...$ -> unita'; i tempi si ripartiscono in proporzione alla lunghezza."""
-    parts = []
-    for m in re.finditer(r"\$([^$]+)\$([.,;:!?]*)|(\S+)", text.replace("\n", " ")):
-        if m.group(1) is not None:
-            parts.append(("m", m.group(1).strip(), m.group(2) or ""))
-        else:
-            parts.append(("w", m.group(3), ""))
-    if not parts:
+def parse_text(text, s, e, orig=None):
+    """Testo con $...$ / $$...$$ -> unita'. Con orig (le unita' di prima) le parole rimaste uguali tengono i loro
+    tempi; altrimenti i tempi si ripartiscono in proporzione alla lunghezza."""
+    import refine
+    if orig:
+        return refine.align(orig, refine.fix_tex_text(text), s, e)
+    toks = refine.tokens(refine.fix_tex_text(text))
+    if not toks:
         return []
-    w = [max(1, len(x[1])) for x in parts]
+    w = [max(1, len(x[1])) for x in toks]
     tot, t, units = float(sum(w)), s, []
-    for (k, x, p), wi in zip(parts, w):
-        d = (e - s) * wi / tot
-        u = {"k": k, "x": x, "s": round(t, 3), "e": round(t + d, 3)}
+    for (k, x, p, d), wi in zip(toks, w):
+        dt = (e - s) * wi / tot
+        u = {"k": k, "x": x, "s": round(t, 3), "e": round(t + dt, 3)}
         if k == "m":
             u["p"] = p
+            if d:
+                u["d"] = 1
         units.append(u)
-        t += d
+        t += dt
     return units
 
 
@@ -282,7 +341,10 @@ def export_tex(title, segs):
             body.append(" ".join(para)); para = []
         txt = []
         for u in s["u"]:
-            txt.append(f"${u['x']}${mathspeech.esc_tex(u.get('p', ''))}" if u["k"] == "m" else mathspeech.esc_tex(u["x"]))
+            if u["k"] == "m" and u.get("d"):
+                txt.append(f"\\[{u['x']}\\]{mathspeech.esc_tex(u.get('p', ''))}")
+            else:
+                txt.append(f"${u['x']}${mathspeech.esc_tex(u.get('p', ''))}" if u["k"] == "m" else mathspeech.esc_tex(u["x"]))
         stamp_t = f"\\textcolor{{gray}}{{\\scriptsize[{stamp(s['s'])}]}}~" if not para else ""
         para.append(stamp_t + " ".join(txt))
         last = s["e"]

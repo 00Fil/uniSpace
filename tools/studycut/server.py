@@ -673,16 +673,32 @@ def job_transcribe(jid, sp, vid):
     def on_prog(p, msg):
         upd(jid, progress=p, message=msg)
 
+    def on_replace(segs, info):
+        # versione corretta incrociando audio e video: quella di Whisper resta in "raw" per confronto
+        t["raw"] = [dict(g) for g in sorted(t["segments"], key=lambda g: g["s"])]
+        t["segments"] = segs
+        t["refine"] = info.get("refine")
+        save_tr(lib, vid, t)
+
     try:
-        lang, model = transcribe.run(FFMPEG, src, prefs["language"], on_seg, on_prog, lambda: mpath(lib, vid).exists() and not cancelled(jid), dur, prefs.get("vocab", ""))
+        frames_ok = not m.get("audio")
+        try:
+            sp.need(64 << 20, "i fotogrammi della lavagna")   # qualche MB: senza spazio si trascrive solo l'audio
+        except Exception:
+            frames_ok = False
+        lang, model, info = transcribe.run(FFMPEG, src, prefs["language"], on_seg, on_prog, lambda: mpath(lib, vid).exists() and not cancelled(jid),
+                                           dur, prefs.get("vocab", ""), work_dir=lib / vid, has_video=frames_ok, on_replace=on_replace)
         # le frasi recuperate nella seconda passata arrivano in fondo: rimettile in ordine di tempo
         t["segments"].sort(key=lambda g: g["s"])
         for k, g in enumerate(t["segments"]):
             g["id"] = k
-        t["language"], t["model"] = lang, model
+        t["language"], t["model"], t["frames"] = lang, model, info.get("frames", 0)
+        if info.get("refine_error"):
+            t["refine_error"] = info["refine_error"]
         save_tr(lib, vid, t)
         m = load_meta(lib, vid)
-        m["transcript"] = {"status": "done", "language": lang, "model": model, "segments": len(t["segments"]), "at": time.time()}
+        m["transcript"] = {"status": "done", "language": lang, "model": model, "segments": len(t["segments"]), "at": time.time(),
+                           "refined": bool(t.get("refine")), "frames": t["frames"]}
         save_meta(lib, m)
         upd(jid, result={"video": vid}, message="Trascrizione pronta")
     except Exception as e:
@@ -1334,16 +1350,19 @@ class H(BaseHTTPRequestHandler):
         if parts == ["api", "status"]:
             try:
                 import transcribe
+                import refine, visual
                 tr_ok, tr_model = transcribe.have_whisper(), transcribe.MODEL
+                fix = {"on": refine.available(), "model": refine.MODEL if refine.available() else None, "ocr": visual.have_ocr(),
+                       "frames": transcribe.FRAMES_ON}
             except Exception:
-                tr_ok, tr_model = False, None
+                tr_ok, tr_model, fix = False, None, None
             try:
                 import yt_dlp
                 ver = yt_dlp.version.__version__
             except Exception:
                 ver = None
             return self.send_json({"ffmpeg": bool(FFMPEG), "ytdlp": ver, "multiuser": bool(USERS_ROOT),
-                                   "whisper": tr_ok, "model": tr_model})
+                                   "whisper": tr_ok, "model": tr_model, "fix": fix})
         # lavori di tutti: solo dall'interno del container (controllo prima del riavvio per aggiornare yt-dlp)
         if parts == ["api", "jobs"] and USERS_ROOT and not self.headers.get("X-User-Id") and self.client_address[0] == "127.0.0.1":
             return self.send_json(jobs_snapshot())
@@ -1387,6 +1406,7 @@ class H(BaseHTTPRequestHandler):
                 start = max(0, int((q.get("from") or ["0"])[0] or 0))
                 return self.send_json({"status": (m.get("transcript") or {}).get("status", "none"), "msg": (m.get("transcript") or {}).get("msg"),
                                        "language": t.get("language"), "model": t.get("model"), "total": len(t["segments"]),
+                                       "refine": t.get("refine"), "refine_error": t.get("refine_error"), "frames": t.get("frames", 0),
                                        "segments": t["segments"][start:]})
             if parts == ["api", "transcript", "export"]:
                 import transcribe
@@ -1559,7 +1579,7 @@ class H(BaseHTTPRequestHandler):
             if not 0 <= i < len(t["segments"]):
                 return self.err("Frase non trovata", 404)
             g = t["segments"][i]
-            units = transcribe.parse_text(str(data.get("text") or "")[:4000], g["s"], g["e"])
+            units = transcribe.parse_text(str(data.get("text") or "")[:4000], g["s"], g["e"], g["u"])
             if not units:
                 t["segments"].pop(i)
                 for k, x in enumerate(t["segments"]):

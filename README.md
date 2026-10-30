@@ -80,6 +80,7 @@ Scheda **Environment**: incolla il contenuto di `.env.example` (facoltativo: sen
 | Variabile | Default | A cosa serve |
 |---|---|---|
 | `STUDYCUT_PARALLEL` | `3` | download contemporanei |
+| `ANTHROPIC_API_KEY` | vuoto | StudyCut: trascrizione corretta incrociando audio e fotogrammi (vedi `tools/studycut/LEGGIMI.md`) |
 | `USER_QUOTA_GB`, `SIGNUP`, `SIGNUP_CODE`, `SESSION_DAYS` | | account, vedi sopra |
 | `YTDLP_AUTO_UPDATE` | `1` | aggiorna yt-dlp all'avvio e ogni 24 ore |
 
