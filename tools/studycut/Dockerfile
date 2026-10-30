@@ -1,8 +1,9 @@
 FROM python:3.13-slim
 
-# ffmpeg per analisi/esportazione, tini come init, deno come runtime JS per yt-dlp (YouTube)
+# ffmpeg per analisi/esportazione, tini come init, deno come runtime JS per yt-dlp (YouTube) e per il controllo
+# delle formule con KaTeX, tesseract per leggere lavagna e slide (orienta la trascrizione)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg tini ca-certificates \
+ && apt-get install -y --no-install-recommends ffmpeg tini ca-certificates tesseract-ocr tesseract-ocr-ita tesseract-ocr-eng \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 
@@ -21,13 +22,14 @@ ENV PATH=/opt/venv/bin:$PATH \
     STUDYCUT_MODELS=/models \
     STUDYCUT_WHISPER_MODEL=large-v3 \
     YTDLP_AUTO_UPDATE=1 \
-    YTDLP_UPDATE_HOURS=24
+    YTDLP_UPDATE_HOURS=24 \
+    DENO_DIR=/tmp/deno
 
 WORKDIR /app
 COPY --chown=app:app requirements.docker.txt ./
 USER app
 RUN pip install --no-cache-dir -r requirements.docker.txt
-COPY --chown=app:app server.py transcribe.py mathspeech.py ./
+COPY --chown=app:app server.py transcribe.py mathspeech.py visual.py refine.py latexcheck.mjs ./
 COPY --chown=app:app --chmod=755 entrypoint.sh ./
 COPY --chown=app:app static/ static/
 

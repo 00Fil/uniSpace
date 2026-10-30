@@ -13,6 +13,11 @@ Nel container:
 |---|---|---|
 | `STUDYCUT_PARALLEL` | 3 | download contemporanei |
 | `STUDYCUT_WHISPER_MODEL` | large-v3 | modello di trascrizione (`medium`/`small` se il server è lento) |
+| `ANTHROPIC_API_KEY` | vuoto | attiva la correzione **audio + video** con Claude |
+| `STUDYCUT_LLM_MODEL` | claude-sonnet-5-5 | modello per la correzione |
+| `STUDYCUT_LLM_URL` / `STUDYCUT_LLM_KEY` | vuoto | in alternativa: API compatibile OpenAI con immagini (es. Ollama + qwen2.5vl) |
+| `STUDYCUT_LLM` | auto | `off` per non correggere |
+| `STUDYCUT_FRAMES` | 1 | `0` per non leggere i fotogrammi |
 | `YTDLP_AUTO_UPDATE` | 1 | 0 per non aggiornare yt-dlp |
 | `YTDLP_UPDATE_HOURS` | 24 | ogni quante ore controllare gli aggiornamenti |
 
@@ -42,6 +47,12 @@ Al primo avvio l'app installa da sola yt-dlp e ffmpeg in un ambiente separato (`
 - Scorciatoie: Spazio, ←/→ (10 s), ↑/↓ (volume), M (muto), F (schermo intero), [ ] (velocità), S (salta silenzi), L e P (sidebar)
 
 ### Trascrizione, segnaposti, tagli, cartelle
+- **Trascrizione incrociata audio + video.** Per ogni lezione:
+  1. legge il video e tiene un fotogramma per ogni slide o stato della lavagna (cambio scena, oppure ogni 45 s se si scrive a lungo) e ne legge il testo con l'OCR (tesseract);
+  2. Whisper large-v3 trascrive l'audio usando come suggerimento le parole viste sulla lavagna (nomi, termini, sigle);
+  3. con `ANTHROPIC_API_KEY` (o `STUDYCUT_LLM_URL`) ogni tratto di ~2,5 minuti va a un modello che vede i fotogrammi e il parlato insieme: corregge le parole sentite male, la punteggiatura, e scrive le formule dette a voce in LaTeX con la notazione della lavagna (`$...$` in linea, `$$...$$` per equazioni e matrici). Non riassume e non aggiunge nulla; una frase lunga che si accorcerebbe troppo resta com'era;
+  4. ogni formula viene composta con KaTeX sul server: se non compila torna al modello con l'errore, e se resta sbagliata la frase torna alla versione di Whisper. I tempi delle parole restano quelli dell'audio (l'evidenziazione segue la voce).
+  Nel pannello compare "audio + video" (corretta) o "audio + lavagna" (solo suggerimenti OCR). La versione di Whisper resta nel file in `raw`.
 - **Trascrizione automatica** (Whisper large-v3, la più precisa): parte da sola su ogni nuovo video, una alla volta; può richiedere tempo (circa 3 GB di RAM; la prima volta scarica il modello). Si disattiva in Impostazioni. Il pannello a destra scorre come i testi di Spotify: la frase attuale si illumina lettera per lettera e le formule dette a voce diventano LaTeX (KaTeX). Doppio clic su una frase per correggerla (le formule vanno fra `$...$`). Esporta in `.txt`, `.tex` o PDF.
 - **Segnaposti** (tasto B): punti da ritrovare, con nome, visibili sulla barra. **Tagli** (I = inizio, O = fine): parti saltate come i silenzi senza toccare il video; tasto T o "Salta tagli" per attivarli/disattivarli.
 - **Libreria:** doppio clic sul titolo per rinominare; "Seleziona" per rinominare in serie (Analisi 1, 2, 3…) o spostare in cartelle; trascina un video su una cartella. "In corso" e le cartelle si aprono in una finestra a griglia.

@@ -1417,23 +1417,28 @@ const revealTab = n => { if (!sideOpen('r')) setSide('r', true); setTab(n); };
 const TR = { id: null, status: 'none', segs: [], lang: null, msg: '', cur: -1, timer: 0, follow: true, userT: 0, words: [], seq: 0, built: 0, keyT: 0 };
 const loadKatex = () => window.katex ? Promise.resolve() : new Promise(r => { const t = setInterval(() => { if (window.katex) { clearInterval(t); r(); } }, 80); });
 const FM = new Map();
-function fm(x) {
-  if (!window.katex) return esc('$' + x + '$');
-  let h = FM.get(x);
-  if (h === undefined) { try { h = katex.renderToString(x, { throwOnError: false, strict: 'ignore', output: 'html' }); } catch { h = esc(x); } FM.set(x, h); }
+function fm(x, disp) {
+  if (!window.katex) return esc(disp ? '$$' + x + '$$' : '$' + x + '$');
+  const key = (disp ? 'D' : 'I') + x; let h = FM.get(key);
+  if (h === undefined) {
+    // se la formula non e' valida si mostra il sorgente, in grigio, invece del rosso di KaTeX
+    try { h = katex.renderToString(x, { throwOnError: true, strict: 'ignore', output: 'html', displayMode: !!disp, trust: false }); }
+    catch { h = `<code class="fm-src">${esc(x)}</code>`; }
+    FM.set(key, h);
+  }
   return h;
 }
 function segHTML(g, chars) {
   return g.u.map(u => {
-    if (u.k === 'm') return `<span class="fm" data-s="${u.s}" data-e="${u.e}">${fm(u.x)}</span>${u.p ? `<span class="pn">${esc(u.p)}</span>` : ''} `;
+    if (u.k === 'm') return `<span class="fm${u.d ? ' dm' : ''}" data-s="${u.s}" data-e="${u.e}">${fm(u.x, u.d)}</span>${u.p ? `<span class="pn">${esc(u.p)}</span>` : ''} `;
     return `<span class="w" data-s="${u.s}" data-e="${u.e}">${chars ? [...u.x].map(c => `<i>${esc(c)}</i>`).join('') : esc(u.x)}</span> `;
   }).join('');
 }
 const rowHTML = (g, i) => `<div class="tl" data-i="${i}"><span class="tl-ts">${fmt(g.s)}</span><div class="tl-t">${segHTML(g, false)}</div></div>`;
-const segText = g => g.u.map(u => u.k === 'm' ? `$${u.x}$${u.p || ''}` : u.x).join(' ');
+const segText = g => g.u.map(u => u.k === 'm' ? (u.d ? `$$${u.x}$$` : `$${u.x}$`) + (u.p || '') : u.x).join(' ');
 function trSwitch(id) {
   if (TR.id === id) return;
-  clearTimeout(TR.timer); Object.assign(TR, { id, status: 'none', segs: [], lang: null, msg: '', cur: -1, words: [], built: 0, seq: TR.seq + 1 });
+  clearTimeout(TR.timer); Object.assign(TR, { id, status: 'none', segs: [], lang: null, msg: '', refine: null, rerr: '', frames: 0, cur: -1, words: [], built: 0, seq: TR.seq + 1 });
   $('#trList').innerHTML = ''; trHead(); trLoad(true);
 }
 async function trLoad(reset) {
@@ -1443,7 +1448,7 @@ async function trLoad(reset) {
     const d = await api(`api/transcript?id=${id}&from=${from}`); if (seq !== TR.seq) return;
     if (reset || d.total < TR.segs.length) { TR.segs = d.segments; TR.built = 0; TR.cur = -1; $('#trList').innerHTML = ''; } else TR.segs.push(...d.segments);
     const was = TR.status;
-    Object.assign(TR, { status: d.status, lang: d.language, msg: d.msg || '' });
+    Object.assign(TR, { status: d.status, lang: d.language, msg: d.msg || '', refine: d.refine || null, rerr: d.refine_error || '', frames: d.frames || 0 });
     // a fine lavoro le frasi recuperate vengono riordinate sul server: ricarica tutto una volta
     if (!reset && (was === 'running' || was === 'queued') && d.status === 'done') return trLoad(true);
     if (TR.segs.length && !window.katex) loadKatex().then(() => { if (seq === TR.seq) { TR.built = 0; TR.cur = -1; $('#trList').innerHTML = ''; trBuild(); } });
@@ -1463,7 +1468,12 @@ function trHead() {
   else if (TR.status === 'none') h = `<span class="tr-msg">Nessuna trascrizione</span>${btn('trGo', 'Trascrivi')}`;
   else if (TR.status === 'queued') h = '<span class="tr-msg"><span class="spin"></span>In coda…</span>';
   else if (TR.status === 'running') h = `<span class="tr-msg"><span class="spin"></span><span id="trPct">Trascrizione in corso</span></span>`;
-  else if (TR.status === 'done') h = `<span class="tr-msg">${n} frasi · ${TR.lang === 'it' ? 'italiano' : TR.lang === 'en' ? 'inglese' : esc(TR.lang || '')}</span>${btn('trGo', 'Rifai')}`;
+  else if (TR.status === 'done') {
+    // da dove viene il testo: solo audio, audio + lavagna (parole lette dai fotogrammi), o corretto incrociando audio e video
+    const src = TR.refine ? '<span class="tr-src ok" title="Ogni frase è stata confrontata con la lavagna e le slide; formule controllate con KaTeX">audio + video</span>'
+      : TR.frames ? `<span class="tr-src" title="${esc(TR.rerr ? 'Correzione non riuscita: ' + TR.rerr : 'Le parole lette sulla lavagna hanno guidato la trascrizione')}">audio + lavagna</span>` : '';
+    h = `<span class="tr-msg">${n} frasi · ${TR.lang === 'it' ? 'italiano' : TR.lang === 'en' ? 'inglese' : esc(TR.lang || '')}</span>${src}${btn('trGo', 'Rifai')}`;
+  }
   else h = `<span class="tr-msg err">${TR.status === 'interrupted' ? 'Interrotta' : esc((TR.msg || 'Non riuscita').slice(0, 110))}</span>${btn('trGo', 'Riprova')}`;
   if (st._h !== h) { st._h = h; st.innerHTML = h; }
   $('#trExp').disabled = !n; $('#trFollow').classList.toggle('on', TR.follow);
@@ -1472,7 +1482,7 @@ function trHead() {
 function trProgress() {
   const j = state.jobs.find(x => x.kind === 'transcribe' && x.video === TR.id && !x.ended), bar = $('#trBar i');
   bar.style.transform = j ? `scaleX(${clamp(j.progress, 0, 1)})` : 'scaleX(0)'; $('#trBar').classList.toggle('on', !!j);
-  const p = $('#trPct'); if (p && j) p.textContent = j.progress > 0 ? `Trascrizione ${Math.round(j.progress * 100)}%` : (j.message || 'Avvio…');
+  const p = $('#trPct'); if (p && j) p.textContent = (j.message || 'Avvio…').replace(/\s+\d+%$/, '') + (j.progress > 0 ? ` · ${Math.round(j.progress * 100)}%` : '');
 }
 $('#trSt').addEventListener('click', async e => {
   if (!e.target.closest('#trGo') || !TR.id) return;
@@ -1511,11 +1521,11 @@ function trTick() {
   if (i < 0) { if (TR.cur >= 0) trActivate(-1); return; }
   if (i !== TR.cur || TR.keyT !== trListEl.children.length) { TR.keyT = trListEl.children.length; if (i < trListEl.children.length) trActivate(i); }
   for (const w of TR.words) {
-    if (t >= w.e) { if (w.lit !== 2) { w.lit = 2; w.el.classList.add('on'); w.ch && w.ch.forEach(c => c.classList.add('on')); w.el.style.removeProperty('--p'); } }
-    else if (t < w.s) { if (w.lit !== 0) { w.lit = 0; w.el.classList.remove('on'); w.ch && w.ch.forEach(c => c.classList.remove('on', 'now')); w.el.style.setProperty('--p', 0); } }
+    if (t >= w.e) { if (w.lit !== 2) { w.lit = 2; w.el.classList.add('on'); w.ch && w.ch.forEach(c => { c.classList.add('on'); c.classList.remove('kc'); }); w.el.style.removeProperty('--p'); } }
+    else if (t < w.s) { if (w.lit !== 0) { w.lit = 0; w.el.classList.remove('on'); w.ch && w.ch.forEach(c => c.classList.remove('on', 'kc')); w.el.style.setProperty('--p', 0); } }
     else {
       w.lit = 1; const f = (t - w.s) / Math.max(.05, w.e - w.s);
-      if (w.ch) { const n = w.ch.length, k = Math.min(n, Math.floor(f * n + .02)); if (w._k !== k) { w._k = k; w.ch.forEach((c, x) => { c.classList.toggle('on', x < k); c.classList.toggle('now', x === k); }); } }
+      if (w.ch) { const n = w.ch.length, k = Math.min(n, Math.floor(f * n + .02)); if (w._k !== k) { w._k = k; w.ch.forEach((c, x) => { c.classList.toggle('on', x < k); c.classList.toggle('kc', x === k); }); } }
       else { const q = Math.round(f * 50) / 50; if (w._q !== q) { w._q = q; w.el.style.setProperty('--p', q); } }
     }
   }
@@ -1536,7 +1546,7 @@ async function trPdf() {
   const paras = []; let cur = [], last = null;
   for (const g of TR.segs) {
     if (last !== null && g.s - last > 2.5 && cur.length) { paras.push(cur.join(' ')); cur = []; }
-    cur.push((cur.length ? '' : `<span class="ts">${fmt(g.s)}</span> `) + g.u.map(u => u.k === 'm' ? fm(u.x) + esc(u.p || '') : esc(u.x)).join(' ')); last = g.e;
+    cur.push((cur.length ? '' : `<span class="ts">${fmt(g.s)}</span> `) + g.u.map(u => u.k === 'm' ? fm(u.x, u.d) + esc(u.p || '') : esc(u.x)).join(' ')); last = g.e;
   }
   if (cur.length) paras.push(cur.join(' '));
   const css = new URL('vendor/katex/katex.min.css', location.href).href;
@@ -1731,6 +1741,10 @@ if (location.pathname === '/' || location.pathname === '/index.html') $('#homeBt
   setSpeed(state.speed); syncAdv(); applyVol(); syncPlay(); fitMob();
   try { const st = await api('api/status');
     state.whisper = !!st.whisper;
+    const fx = st.fix || {};
+    $('#prefFix').textContent = fx.on ? `Attiva (${fx.model}): ogni frase viene confrontata con la lavagna e le slide, le formule diventano LaTeX controllato.`
+      : fx.frames ? `Le parole lette ${fx.ocr ? 'sulla lavagna e sulle slide' : 'dai fotogrammi'} guidano la trascrizione. Per la correzione completa con le immagini serve ANTHROPIC_API_KEY (o STUDYCUT_LLM_URL) sul server.`
+      : 'Disattivata sul server.';
     if (!st.ffmpeg || !st.ytdlp) $('#status').textContent = !st.ffmpeg ? 'ffmpeg mancante' : 'yt-dlp mancante'; } catch {}
   await firstPoll; loadPrefs(); setTab(tabIn());
   await loadLib();

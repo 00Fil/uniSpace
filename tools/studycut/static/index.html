@@ -136,7 +136,7 @@
       <section class="pane on" id="paneTr">
         <div class="tr-h"><div class="tr-st" id="trSt"></div>
           <div class="tr-tools">
-            <button class="ib sm" id="trFollow" title="Segui la riproduzione" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M12 4v10m0 0-4-4m4 4 4-4M5 19h14"/></svg></button>
+            <button class="ib sm" id="trFollow" title="Segui la riproduzione" aria-pressed="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></svg></button>
             <div class="menu-w"><button class="ib sm" id="trExp" title="Esporta la trascrizione"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 20h14"/></svg></button>
               <div class="menu pop" id="trMenu"><button data-fmt="txt">Testo (.txt)</button><button data-fmt="tex">LaTeX (.tex)</button><button data-fmt="pdf">PDF</button></div></div>
           </div></div>
@@ -186,6 +186,7 @@
       <div class="set-r"><div><div class="lbl">Lingua parlata</div></div><select id="prefLang" class="sel"><option value="it">Italiano</option><option value="en">English</option><option value="auto">Rilevamento automatico</option></select></div>
       <div class="set-r set-col"><div><div class="lbl">Parole del corso</div><div class="sub">Nomi di teoremi, autori e termini che il professore usa spesso: aiutano la trascrizione a scriverli giusti.</div></div>
         <textarea id="prefVocab" class="set-ta" rows="3" maxlength="600" spellcheck="false" placeholder="es. Rouché-Capelli, Grassmann, forma di Jordan, Sylvester"></textarea></div>
+      <div class="set-r set-col"><div><div class="lbl">Audio + video</div><div class="sub" id="prefFix">…</div></div></div>
     </div>
     <h2>Download</h2>
     <div class="set-card">

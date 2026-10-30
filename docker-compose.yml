@@ -44,6 +44,12 @@ services:
       STUDYCUT_USERS: /data/users        # una libreria per utente: /data/users/<id>/studycut
       STUDYCUT_QUOTA_GB: ${USER_QUOTA_GB:-2}
       YTDLP_AUTO_UPDATE: ${YTDLP_AUTO_UPDATE:-1}
+      # trascrizione incrociata audio + video: con una chiave il testo viene corretto guardando lavagna e slide
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      STUDYCUT_LLM_MODEL: ${STUDYCUT_LLM_MODEL:-}
+      STUDYCUT_LLM_URL: ${STUDYCUT_LLM_URL:-}
+      STUDYCUT_LLM_KEY: ${STUDYCUT_LLM_KEY:-}
+      STUDYCUT_LLM: ${STUDYCUT_LLM:-auto}
     volumes:
       - userdata:/data/users
       - studycut-secrets:/app/secrets
