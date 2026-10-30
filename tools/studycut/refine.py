@@ -58,7 +58,8 @@ Regole:
 6. Non inventare formule: se il docente indica la lavagna ("questa", "qui sopra") senza dettare la formula, trascrivi solo cio' che dice.
 7. Stessi id, stesso numero di frasi: un elemento per ogni id ricevuto, nessuno in piu'. Una parola spezzata fra due frasi si ripara nella prima.
 8. Frasi che sono rumore o allucinazioni dell'audio (es. "Sottotitoli a cura di...", parole senza senso su un silenzio): testo vuoto.
-9. Scrivi nella lingua della lezione."""
+9. Le parole fra ⟦ ⟧ sono quelle che il riconoscimento vocale ha sentito con poca sicurezza: spesso sono sbagliate. Ripensale una per una: scegli la parola che suona simile e ha senso nel discorso e sulla lavagna (un verbo storpiato in una parola che non esiste e' quasi sempre il verbo giusto del contesto, es. ⟦scioppiamo⟧ dopo "prendiamo i due vettori e li" -> sommiamo). Se la parola e' gia' giusta tienila. Nel testo restituito non mettere mai ⟦ ⟧.
+10. Scrivi nella lingua della lezione."""
 
 TOOL = {
     "name": "consegna_trascrizione",
@@ -129,7 +130,7 @@ def _ask(images, text, usage):
     out = {}
     for s in data["segments"]:
         try:
-            out[int(s["id"])] = str(s.get("text") or "").strip()
+            out[int(s["id"])] = re.sub(r"[⟦⟧]", "", str(s.get("text") or "")).strip()
         except Exception:
             pass
     return out
@@ -190,11 +191,14 @@ def align(orig, text, s, e):
     return units
 
 
-def seg_text(seg):
+def seg_text(seg, marked=False):
+    """marked: le parole di cui Whisper era poco sicuro vanno fra ⟦ ⟧ (solo nel testo mandato al modello)."""
     out = []
     for u in seg["u"]:
         if u["k"] == "m":
             out.append(("$$%s$$" if u.get("d") else "$%s$") % u["x"] + u.get("p", ""))
+        elif marked and u.get("q") is not None:
+            out.append(f"⟦{u['x']}⟧")
         else:
             out.append(u["x"])
     return " ".join(out)
@@ -281,7 +285,7 @@ def _prompt(chunk, before, after, frames, vocab, lang):
     if before:
         parts.append("Contesto precedente (non va restituito):\n" + "\n".join(seg_text(g) for g in before))
     parts.append("Trascrizione da correggere (" + ("italiano" if lang == "it" else lang or "lingua della lezione") + "):\n" +
-                 "\n".join(f"[{g['id']}] ({_mmss(g['s'])}) {seg_text(g)}" for g in chunk))
+                 "\n".join(f"[{g['id']}] ({_mmss(g['s'])}) {seg_text(g, True)}" for g in chunk))
     if after:
         parts.append("Contesto successivo (non va restituito):\n" + "\n".join(seg_text(g) for g in after))
     parts.append(f"Restituisci esattamente gli id da {chunk[0]['id']} a {chunk[-1]['id']}.")

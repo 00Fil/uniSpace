@@ -683,6 +683,9 @@ def convert(words):
                           "p": punct[0] if punct else ""})
             i += used
         else:
-            units.append({"k": "w", "x": raw[i], "s": words[i]["s"], "e": words[i]["e"]})
+            u = {"k": "w", "x": raw[i], "s": words[i]["s"], "e": words[i]["e"]}
+            if words[i].get("q") is not None:            # sicurezza di Whisper sulla parola (solo se bassa)
+                u["q"] = words[i]["q"]
+            units.append(u)
             i += 1
     return units
