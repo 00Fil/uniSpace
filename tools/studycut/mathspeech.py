@@ -27,7 +27,8 @@ RELS = [
     (("maggiore", "o", "uguale", "a"), r"\ge"), (("minore", "o", "uguale", "a"), r"\le"), (("maggiore", "uguale", "di"), r"\ge"),
     (("minore", "uguale", "di"), r"\le"), (("uguale", "a"), "="), (("è", "uguale", "a"), "="), (("uguale",), "="), (("diverso", "da"), r"\neq"),
     (("maggiore", "di"), ">"), (("minore", "di"), "<"), (("circa", "uguale", "a"), r"\approx"), (("non", "appartiene", "a"), r"\notin"),
-    (("appartiene", "a"), r"\in"), (("appartiene", "ad"), r"\in"), (("contenuto", "in"), r"\subseteq"), (("sottoinsieme", "di"), r"\subseteq"),
+    (("appartiene", "a"), r"\in"), (("appartiene", "ad"), r"\in"), (("appartenente", "a"), r"\in"), (("appartenenti", "a"), r"\in"),
+    (("appartengono", "a"), r"\in"), (("sta", "in"), r"\in"), (("contenuto", "in"), r"\subseteq"), (("sottoinsieme", "di"), r"\subseteq"),
     (("implica",), r"\Rightarrow"), (("se", "e", "solo", "se"), r"\iff"), (("tende", "a"), r"\to"), (("ortogonale", "a"), r"\perp"),
     (("parallelo", "a"), r"\parallel"), (("unito", "a"), r"\cup"), (("unione",), r"\cup"), (("intersezione",), r"\cap"),
     (("intersecato", "con"), r"\cap"), (("congruo", "a"), r"\equiv"), (("proporzionale", "a"), r"\propto"),
@@ -39,7 +40,7 @@ CLOSE = [("parentesi", "tonda", "chiusa"), ("chiusa", "parentesi", "tonda"), ("c
          ("chiusa", "parentesi"), ("tonda", "chiusa")]
 VERB = re.compile(r"^[\w.,]*[\^_=+\-*/<>][\w^_=+\-*/<>().,]*$|^[a-zA-Z]\([\w+\-*/^., ]*\)$", re.U)
 MATHCH = re.compile(r"[\^_=+*/<>]|[a-zA-Z0-9]\(")
-AMBIG = {"a", "e", "i", "o", "u", "è", "ad", "ed"}
+AMBIG = {"a", "e", "i", "o", "è", "ad", "ed"}
 WORD_CLEAN = re.compile(r"[^\w'^_=+\-*/<>().,|]", re.U)
 
 
@@ -86,6 +87,16 @@ def esc_tex(s):
     """Testo normale -> testo sicuro per LaTeX."""
     return "".join({"#": r"\#", "$": r"\$", "%": r"\%", "&": r"\&", "_": r"\_", "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}",
                     "^": r"\textasciicircum{}", "\\": r"\textbackslash{}"}.get(ch, ch) for ch in s)
+
+
+# variabile a cui puo' seguire un pedice detto a voce (lettera o lettera greca, senza pedice gia' messo)
+IDX_BASE = re.compile(r"(?:^|[^\\A-Za-z])[A-Za-z]$|\\(?:alpha|beta|gamma|delta|varepsilon|eta|theta|lambda|mu|nu|xi|rho|sigma|tau|varphi|chi|psi|omega)$")
+INDEX = {"i", "j", "k", "n", "m"}
+
+
+def cat(a, b):
+    """Concatena due pezzi di LaTeX: dopo un comando (\\beta) una lettera va separata, se no diventa \\betav."""
+    return f"{a} {b}" if (re.search(r"\\[A-Za-z]+$", a) or re.search(r"_(\w|\{[^{}]*\})$", a)) and b[:1] in "\\abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" else f"{a}{b}"
 
 
 class Parser:
@@ -203,20 +214,50 @@ class Parser:
                 if c in ("fratto", "diviso", "/"):
                     out = rf"\frac{{{out}}}{{{f}}}" if self.simple(out) and self.simple(f) else f"{out}/{f}"
                 else:
-                    out = rf"{out} \cdot {f}" if (out[-1].isdigit() and f[0].isdigit()) or (re.search(r"[A-Za-z]$", out) and f[0] == out[-1]) or "\\frac" in out or "\\frac" in f else f"{out}{f}" if f[0].isalpha() or f[0] == "\\" else f"{out} \\cdot {f}"
+                    out = rf"{out} \cdot {f}" if (out[-1].isdigit() and f[0].isdigit()) or (re.search(r"[A-Za-z]$", out) and f[0] == out[-1]) or "\\frac" in out or "\\frac" in f else cat(out, f) if f[0].isalpha() or f[0] == "\\" else f"{out} \\cdot {f}"
                 self.strong = True
             else:
-                # prodotto implicito:  3 x,  2 pi greco,  x y
+                # pedice detto a voce: "alfa n", "u n", "lambda uno", "x 2"  ->  \alpha_n, u_n, \lambda_1, x_2
                 save = self.i
+                sub = self.index(out)
+                if sub != out:
+                    out = sub
+                    continue
+                # prodotto implicito:  3 x,  2 pi greco,  x y
                 if out and (out[-1].isdigit() or out[-1].isalpha() or out[-1] in "})") and self.at() is not None and self.at() not in AMBIG and self.i - 1 != self.amb_pos:
                     f = self.atom(implicit=True)
                     if f is not None and (f[0].isalpha() or f[0] == "\\" or f[0] == "("):
-                        out = f"{out}{f}"
+                        out = cat(out, self.index(f))
                         self.strong = True
                         continue
                     self.i = save
                 break
         return out
+
+    def index(self, base):
+        """base + indice detto subito dopo -> base con pedice ("alfa n" -> \\alpha_n). Altrimenti base invariata."""
+        c = self.at()
+        if c is None or self.i - 1 == self.amb_pos:
+            return base
+        two = re.search(r"_(\w)$|_\{(\w+)\}$", base)       # "a i j" -> a_{ij}
+        if two:
+            if c in INDEX or c.isdigit():
+                self.i += 1
+                return base[:two.start()] + "_{" + (two.group(1) or two.group(2)) + (c if c.isdigit() else self.letter(self.i - 1)) + "}"
+            return base
+        if not IDX_BASE.search(base):
+            return base
+        n = num_word(c)
+        idx = c if (c in INDEX or c.isdigit()) else str(n) if n is not None and n < 10 and c not in ("un", "una") else None
+        if idx is None or (idx.isdigit() and self.at(1) in ("per", "volte")):
+            return base
+        if not idx.isdigit() and self.letter(self.i) == "I":   # "lambda I": la matrice identita', non un pedice
+            return base
+        self.i += 1
+        self.strong = True
+        if not idx.isdigit():
+            idx = self.letter(self.i - 1)
+        return f"{base}_{idx}" if len(idx) == 1 else f"{base}_{{{idx}}}"
 
     @staticmethod
     def simple(s):
