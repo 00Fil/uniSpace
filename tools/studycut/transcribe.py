@@ -41,7 +41,9 @@ FIXES = [(tuple(k.split()), v) for k, v in (
     ("vaierstrass", "Weierstrass"), ("vaierstrasse", "Weierstrass"), ("weierstrasse", "Weierstrass"), ("cosci", "Cauchy"), ("coshi", "Cauchy"),
     ("cauchi", "Cauchy"), ("riman", "Riemann"), ("rieman", "Riemann"), ("laibniz", "Leibniz"), ("leibnitz", "Leibniz"), ("giordan", "Jordan"),
     ("gaus", "Gauss"), ("bine", "Binet"), ("laplas", "Laplace"), ("lagrangia", "Lagrange"), ("teilor", "Taylor"), ("mac laurin", "MacLaurin"),
-    ("mclaurin", "MacLaurin"), ("silvester", "Sylvester"), ("ermite", "Hermite"), ("spam", "span"),
+    ("mclaurin", "MacLaurin"),
+    ("vu doppia", "w"), ("vu doppio", "w"), ("v doppia", "w"), ("v doppio", "w"), ("u doppia", "w"), ("u doppio", "w"),
+    ("doppia vu", "w"), ("doppio vu", "w"), ("doppia v", "w"), ("doppia u", "w"), ("silvester", "Sylvester"), ("ermite", "Hermite"), ("spam", "span"),
 )]
 
 
@@ -137,6 +139,23 @@ def _word(w, off=0.0):
     if w.probability < UNSURE:
         d["q"] = round(float(w.probability), 2)
     return d
+
+
+def drop_bad_tex(segs):
+    """Formule che KaTeX non compone (regole a voce sbagliate): tornano parole normali, come erano state dette."""
+    import refine
+    ref = [(g, k) for g in segs for k, u in enumerate(g["u"]) if u["k"] == "m"]
+    res = refine.check_tex([[g["u"][k]["x"], bool(g["u"][k].get("d"))] for g, k in ref])
+    bad = 0
+    for (g, k), err in reversed(list(zip(ref, res))):
+        if err:
+            u = g["u"][k]
+            ws = (u.get("src") or u["x"]).split() or [u["x"]]
+            d = (u["e"] - u["s"]) / len(ws)
+            g["u"][k:k + 1] = [{"k": "w", "x": w + (u.get("p", "") if j == len(ws) - 1 else ""), "s": round(u["s"] + j * d, 3),
+                                "e": round(u["s"] + (j + 1) * d, 3)} for j, w in enumerate(ws)]
+            bad += 1
+    return bad
 
 
 def to_units(words, off=0.0):
@@ -366,6 +385,7 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab="
     done.sort(key=lambda g: g["s"])
     for k, g in enumerate(done):
         g["id"] = k
+    info["bad_tex"] = drop_bad_tex(done)
     if refine.available() and done and on_replace:
         on_progress(W1, "Correggo con audio e video...")
         try:
