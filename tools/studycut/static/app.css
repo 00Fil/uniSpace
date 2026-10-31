@@ -819,6 +819,8 @@ input[type=range]::-webkit-slider-thumb,input[type=range]::-moz-range-thumb{back
 .tl .w i.kc{color:#fff;text-shadow:0 0 14px rgba(246,240,230,.7)}
 .tl.cur .w.on{color:#fff}
 .tl .pn{margin-left:-.18em}
+/* parole sentite con poca sicurezza (senza correzione audio + video): sottolineate, da controllare */
+.tl .w.q{text-decoration:underline dotted color-mix(in srgb,var(--warn,#e0a24a) 70%,transparent);text-decoration-thickness:1.5px;text-underline-offset:5px}
 /* formule: composte da KaTeX; nella frase attuale si rivelano da sinistra a destra */
 .tl .fm{display:inline;margin:0 .1em;font-weight:400;font-size:.94em}
 .tl .fm.dm{display:block;margin:6px 0;padding:4px 0;text-align:center;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}

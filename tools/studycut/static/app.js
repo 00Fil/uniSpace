@@ -1431,7 +1431,7 @@ function fm(x, disp) {
 function segHTML(g, chars) {
   return g.u.map(u => {
     if (u.k === 'm') return `<span class="fm${u.d ? ' dm' : ''}" data-s="${u.s}" data-e="${u.e}">${fm(u.x, u.d)}</span>${u.p ? `<span class="pn">${esc(u.p)}</span>` : ''} `;
-    return `<span class="w" data-s="${u.s}" data-e="${u.e}">${chars ? [...u.x].map(c => `<i>${esc(c)}</i>`).join('') : esc(u.x)}</span> `;
+    return `<span class="w${u.q != null ? ' q' : ''}" data-s="${u.s}" data-e="${u.e}"${u.q != null ? ' title="Parola incerta: doppio clic per correggerla"' : ''}>${chars ? [...u.x].map(c => `<i>${esc(c)}</i>`).join('') : esc(u.x)}</span> `;
   }).join('');
 }
 const rowHTML = (g, i) => `<div class="tl" data-i="${i}"><span class="tl-ts">${fmt(g.s)}</span><div class="tl-t">${segHTML(g, false)}</div></div>`;

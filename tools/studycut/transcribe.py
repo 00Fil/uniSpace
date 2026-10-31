@@ -59,7 +59,7 @@ def fix_terms(words):
             k, rep = hit
             tail = re.search(r"[.,;:!?]+$", words[i + k - 1]["w"].strip())
             lead = " " if words[i]["w"].startswith(" ") else ""
-            out.append({"w": lead + rep + (tail[0] if tail else ""), "s": words[i]["s"], "e": words[i + k - 1]["e"]})
+            out.append({"w": lead + rep + (tail[0] if tail else ""), "s": words[i]["s"], "e": words[i + k - 1]["e"]})   # termine del corso: sicuro
             i += k
         else:
             out.append(words[i]); i += 1
@@ -122,14 +122,97 @@ def join_elisions(words):
     for w in words:
         t = w["w"].strip()
         if out and (t[:1] in "'’" or out[-1]["w"].rstrip()[-1:] in "'’") and re.match(r"^['’]?\w", t):
-            out[-1] = {"w": out[-1]["w"].rstrip() + t, "s": out[-1]["s"], "e": w["e"]}
+            q = [x["q"] for x in (out[-1], w) if x.get("q") is not None]
+            out[-1] = {"w": out[-1]["w"].rstrip() + t, "s": out[-1]["s"], "e": w["e"], **({"q": min(q)} if q else {})}
         else:
             out.append(w)
     return out
 
 
-def to_units(words):
-    return mathspeech.convert(fix_terms(join_elisions([{"w": w.word, "s": round(w.start, 3), "e": round(w.end, 3)} for w in words if w.word.strip()])))
+UNSURE = float(os.environ.get("STUDYCUT_UNSURE", "0.5"))     # sotto questa probabilita' una parola e' "incerta"
+
+
+def _word(w, off=0.0):
+    d = {"w": w.word, "s": round(w.start + off, 3), "e": round(w.end + off, 3)}
+    if w.probability < UNSURE:
+        d["q"] = round(float(w.probability), 2)
+    return d
+
+
+def to_units(words, off=0.0):
+    return mathspeech.convert(fix_terms(join_elisions([_word(w, off) for w in words if w.word.strip()])))
+
+
+def _recheck(model, audio, segs, lang, vocab, seen, alive, on_progress=lambda k, n: None, sr=16000):
+    """Seconda opinione sulle parole incerte: intorno a ogni gruppo di parole incerte l'audio (con 2 s di margine)
+    viene ritrascritto da solo, con le frasi precedenti come contesto e senza il testo "trascinato" dalla passata
+    lunga, che e' la causa tipica delle parole inventate ("li sommiamo" -> "li scioppiamo"). Le parole nuove che
+    cadono nel tempo delle parole incerte le sostituiscono solo se sono nettamente piu' sicure.
+    Le frasi si aggiornano sul posto (sono gli stessi oggetti gia' salvati)."""
+    import numpy as np
+    jobs = []
+    for gi, g in enumerate(segs):
+        bad = [k for k, u in enumerate(g["u"]) if u["k"] == "w" and u.get("q") is not None and u["q"] < UNSURE * 0.8]
+        for k in bad:                                  # gruppi di parole incerte vicine (al massimo 2 parole in mezzo)
+            if jobs and jobs[-1][0] == gi and k - jobs[-1][2] <= 3:
+                jobs[-1][2] = k
+            else:
+                jobs.append([gi, k, k])
+    jobs = jobs[:int(os.environ.get("STUDYCUT_RECHECK_MAX", "400"))]
+    fixed = 0
+    for n, (gi, k0, k1) in enumerate(reversed(jobs)):  # dal fondo: le sostituzioni non spostano gli indici dei gruppi prima
+        if not alive():
+            raise RuntimeError("Interrotta: video eliminato")
+        on_progress(n, len(jobs))
+        g = segs[gi]
+        old = g["u"][k0:k1 + 1]
+        a, b = old[0]["s"], old[-1]["e"]
+        i0, i1 = max(0, int((a - 2.5) * sr)), min(len(audio), int((b + 2.5) * sr))
+        if i1 - i0 < sr:
+            continue
+        ctx = " ".join(seg_text(x) for x in segs[max(0, gi - 2):gi]).replace("$", "")[-300:]
+        try:
+            sub, _ = model.transcribe(np.ascontiguousarray(audio[i0:i1]), **_opts(
+                lang, vocab, seen, vad_filter=False, condition_on_previous_text=False, temperature=[0.0],
+                beam_size=max(BEAM, 8), prompt_ctx=ctx))
+            words = [w for x in sub for w in (x.words or [])]
+        except Exception:
+            continue
+        off = i0 / sr
+        words = [w for w in words if w.word.strip()]
+        if not words or JUNK.search(" ".join(w.word for w in words)):
+            continue
+        # decisione parola per parola: ogni parola incerta si confronta con le parole nuove che cadono nel suo tempo
+        out, changed = [], False
+        nrm = lambda x: re.sub(r"\W", "", x.lower())
+        for j, u in enumerate(old):
+            if u["k"] != "w" or u.get("q") is None or u["q"] >= UNSURE * 0.8:
+                out.append(u); continue
+            hit = [w for w in words if u["s"] - 0.08 <= (w.start + w.end) / 2 + off <= u["e"] + 0.08]
+            # i tempi delle due letture non coincidono al millisecondo: le parole vicine gia' presenti non si ripetono
+            prev = g["u"][k0 + j - 1] if k0 + j > 0 else None
+            nxt = g["u"][k0 + j + 1] if k0 + j + 1 < len(g["u"]) else None
+            while hit and prev and nrm(hit[0].word) == nrm(prev["x"]) and nrm(hit[0].word) != nrm(u["x"]):
+                hit = hit[1:]
+            while hit and nxt and nrm(hit[-1].word) == nrm(nxt["x"]) and nrm(hit[-1].word) != nrm(u["x"]):
+                hit = hit[:-1]
+            if not hit or len(hit) > 3:
+                out.append(u); continue
+            p_new = min(w.probability for w in hit)
+            same = "".join(nrm(w.word) for w in hit) == nrm(u["x"])
+            if os.environ.get("RDEBUG"):
+                print("RC", u["x"], u["q"], [w.word for w in hit], round(p_new, 2))
+            if same or p_new < max(u["q"] + 0.3, UNSURE):
+                out.append(u); continue
+            rep = to_units(hit, off)
+            tail = re.search(r"[.,;:!?]+$", u["x"])         # la punteggiatura della parola originale resta
+            if rep and tail and rep[-1]["k"] == "w" and not re.search(r"[.,;:!?]$", rep[-1]["x"]):
+                rep[-1]["x"] += tail[0]
+            out.extend(rep); changed = True
+        if changed:
+            g["u"][k0:k1 + 1] = out
+            fixed += 1
+    return fixed
 
 
 def _opts(lang, vocab="", seen=(), **kw):
@@ -138,10 +221,13 @@ def _opts(lang, vocab="", seen=(), **kw):
     seen: parole lette sui fotogrammi della lezione (lavagna, slide). Whisper tiene solo la coda del prompt,
     quindi l'ordine e': prompt del corso, parole viste, parole dello studente (le piu' importanti in fondo)."""
     prompt = PROMPTS.get(lang or "it", PROMPTS["it"])
+    ctx = kw.pop("prompt_ctx", "")
     if seen:
         prompt += " Alla lavagna: " + ", ".join(list(seen)[:30]) + "."
     if vocab.strip():
         prompt += " Termini del corso: " + vocab.strip()[:300] + "."
+    if ctx:                                   # frase appena detta: la coda del prompt e' quella che Whisper legge di piu'
+        prompt += " " + ctx
     o = dict(language=lang, task="transcribe", beam_size=BEAM, best_of=5, patience=1.0,
              temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0], word_timestamps=True,
              condition_on_previous_text=True, prompt_reset_on_temperature=0.5, initial_prompt=prompt,
@@ -242,6 +328,10 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab="
             f = min(1.0, s.end / max(duration, 1))
             on_progress(W0 + (W1 - W0) * 0.93 * f, f"Trascrizione dell'audio  {int(f * 100)}%")
 
+        # ---- ricontrollo delle parole incerte (seconda opinione su ogni tratto dubbio)
+        info["rechecked"] = _recheck(model, audio, done, lang, vocab, seen, alive,
+                                     lambda k, n: on_progress(W0 + (W1 - W0) * 0.93, f"Ricontrollo le parole incerte  {k + 1}/{n}"))
+
         # ---- seconda passata: recupero dei pezzi persi
         gaps = _speech_gaps(audio, done)
         for k, (a, b) in enumerate(gaps):
@@ -264,11 +354,9 @@ def run(ffmpeg, src, language, on_segment, on_progress, alive, duration, vocab="
                 ws = [w for w in (s.words or []) if w.probability >= 0.6 and a - 0.15 <= w.start + off and w.end + off <= b + 0.15]
                 if len(ws) < 2:
                     continue
-                for w in ws:
-                    w.start, w.end = w.start + off, w.end + off
-                units = to_units(ws)
+                units = to_units(ws, off)
                 if units:
-                    seg = {"id": n, "s": round(ws[0].start, 3), "e": round(ws[-1].end, 3), "u": units}
+                    seg = {"id": n, "s": round(ws[0].start + off, 3), "e": round(ws[-1].end + off, 3), "u": units}
                     on_segment(seg); done.append(seg)
                     n += 1
     finally:
